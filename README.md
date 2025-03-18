@@ -1,4 +1,4 @@
-# DigitalOcean FinOps Dashboard
+# DigitalcOcean FinOps Dashboard
 
 A React-based dashboard for visualizing DigitalOcean billing data.
 
