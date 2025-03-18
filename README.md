@@ -4,6 +4,9 @@ A React-based dashboard for visualizing DigitalOcean billing data.
 
 All you need is an API token from Digital Ocean with Read permissions scoped to Billing.
 
+![image](https://github.com/user-attachments/assets/d77ed74b-e726-4b1c-b2d7-961f24ac34a7)
+
+
 ## Features
 
 - Connect with your DigitalOcean API token
