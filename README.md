@@ -2,6 +2,8 @@
 
 A React-based dashboard for visualizing DigitalOcean billing data.
 
+All you need is an API token from Digital Ocean with Read permissions scoped to Billing.
+
 ## Features
 
 - Connect with your DigitalOcean API token
@@ -23,7 +25,7 @@ A React-based dashboard for visualizing DigitalOcean billing data.
 
 1. Clone this repository:
    ```
-   git clone 
+   git clone https://github.com/N-Erickson/DigitalOcean-Billing-Dashboard.git
    ```
 
 2. Install dependencies:
