@@ -4,6 +4,8 @@ import { MonthlyChart } from './charts/MonthlyChart';
 import { CategoryChart } from './charts/CategoryChart';
 import { ProjectChart } from './charts/ProjectChart';
 import { ProductChart } from './charts/ProductChart';
+import { DetailedLineItemsChart } from './charts/DetailedLineItemsChart';
+import { LineItemExplorer } from './LineItemExplorer';
 import { InvoiceTable } from './InvoiceTable';
 import { formatCurrency, processData, processProjectData } from '../utils/dataUtils';
 
@@ -17,9 +19,11 @@ export const Dashboard = ({
   timeRange, 
   onLogout, 
   onRefresh, 
-  onTimeRangeChange 
+  onTimeRangeChange,
+  fetchLineItemDetails
 }) => {
   const [showDataNotice, setShowDataNotice] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [processedData, setProcessedData] = useState({
     monthlyData: { labels: [], values: [] },
     categoryData: {},
@@ -84,6 +88,12 @@ export const Dashboard = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Handle category click for drill-down
+  const handleCategoryClick = (category) => {
+    console.log(`Selected category: ${category}`);
+    setSelectedCategory(category);
   };
 
   // Close data notice
@@ -169,6 +179,29 @@ export const Dashboard = ({
                   data={Object.keys(projectData).length > 0 ? projectData : processedData.projectData} 
                 />
               </div>
+            </div>
+          </div>
+
+          {/* New Section for Detailed Line Items (Interactive) */}
+          <div className="chart-container">
+            <h3 className="chart-title">
+              {selectedCategory ? `Line Items: ${selectedCategory}` : 'Detailed Line Items'}
+            </h3>
+            <div className="chart" style={{ height: selectedCategory ? "600px" : "400px" }}>
+              {selectedCategory ? (
+                <LineItemExplorer
+                  detailedLineItems={detailedLineItems}
+                  selectedCategory={selectedCategory}
+                  onBack={() => setSelectedCategory(null)}
+                  timeRange={timeRange}
+                />
+              ) : (
+                <DetailedLineItemsChart 
+                  detailedLineItems={detailedLineItems}
+                  timeRange={timeRange}
+                  onCategoryClick={handleCategoryClick}
+                />
+              )}
             </div>
           </div>
 

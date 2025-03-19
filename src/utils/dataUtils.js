@@ -120,6 +120,93 @@ export const processProjectData = (detailedLineItems, selectedRange, invoices) =
   return projectSpend;
 };
 
+// Enhanced helper function to process detailed line items by category
+export const processDetailedLineItems = (detailedLineItems, selectedRange, invoices) => {
+  if (!detailedLineItems || detailedLineItems.length === 0) {
+    return {};
+  }
+  
+  // Filter invoices by time range
+  const filteredInvoices = filterInvoicesByTimeRange(invoices, selectedRange);
+  
+  // Get set of invoice UUIDs for the selected time range
+  const invoiceIds = new Set(filteredInvoices.map(invoice => invoice.invoice_uuid));
+  
+  // Filter detailed line items by invoice IDs
+  const filteredLineItems = detailedLineItems.filter(item => 
+    item.invoice_uuid && invoiceIds.has(item.invoice_uuid)
+  );
+  
+  // Group items by category
+  const categorizedItems = {};
+  
+  filteredLineItems.forEach(item => {
+    // Determine the category
+    const category = item.name || 
+                    item.group_description || 
+                    item.description || 
+                    'Unknown';
+    
+    // Initialize the category array if needed
+    if (!categorizedItems[category]) {
+      categorizedItems[category] = [];
+    }
+    
+    // Add the item to the category
+    categorizedItems[category].push(item);
+  });
+  
+  return categorizedItems;
+};
+
+// Helper function to get detailed data for a specific category
+export const getCategoryDetails = (detailedLineItems, category, selectedRange, invoices) => {
+  if (!category || !detailedLineItems || detailedLineItems.length === 0) {
+    return [];
+  }
+  
+  // Filter invoices by time range
+  const filteredInvoices = filterInvoicesByTimeRange(invoices, selectedRange);
+  
+  // Get set of invoice UUIDs for the selected time range
+  const invoiceIds = new Set(filteredInvoices.map(invoice => invoice.invoice_uuid));
+  
+  // Filter detailed line items by invoice IDs and category
+  return detailedLineItems.filter(item => {
+    if (!item.invoice_uuid || !invoiceIds.has(item.invoice_uuid)) {
+      return false;
+    }
+    
+    // Determine the item's category
+    const itemCategory = item.name || 
+                        item.group_description || 
+                        item.description || 
+                        'Unknown';
+    
+    return itemCategory === category;
+  });
+};
+
+// Helper function to get distinct categories from detailed line items
+export const getDistinctCategories = (detailedLineItems) => {
+  if (!detailedLineItems || detailedLineItems.length === 0) {
+    return [];
+  }
+  
+  const categories = new Set();
+  
+  detailedLineItems.forEach(item => {
+    const category = item.name || 
+                    item.group_description || 
+                    item.description || 
+                    'Unknown';
+    
+    categories.add(category);
+  });
+  
+  return Array.from(categories);
+};
+
 // Main data processing function
 export const processData = (invoices, invoiceSummaries, selectedRange) => {
   console.log("Processing data with time range:", selectedRange);
