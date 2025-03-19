@@ -92,6 +92,10 @@ function App() {
       const itemsWithProject = allLineItems.filter(item => item.project_name).length;
       console.log(`Items with project_name: ${itemsWithProject} out of ${allLineItems.length} (${((itemsWithProject/allLineItems.length)*100).toFixed(1)}%)`);
       
+      // Count items with detailed descriptions
+      const itemsWithDesc = allLineItems.filter(item => item.description && item.description.length > 5).length;
+      console.log(`Items with detailed description: ${itemsWithDesc} out of ${allLineItems.length} (${((itemsWithDesc/allLineItems.length)*100).toFixed(1)}%)`);
+      
       return allLineItems;
     } catch (error) {
       console.error("Error fetching detailed invoice data:", error);
@@ -201,6 +205,31 @@ function App() {
     setTimeRange(newRange);
   };
 
+  // Fetch additional line item details for a specific invoice
+  const fetchLineItemDetails = async (invoiceId) => {
+    if (!apiToken || !invoiceId) return null;
+    
+    try {
+      const headers = {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      };
+      
+      const response = await fetch(
+        `https://api.digitalocean.com/v2/customers/my/invoices/${invoiceId}`,
+        { method: 'GET', headers }
+      );
+      
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error(`Error fetching line item details for invoice ${invoiceId}:`, error);
+      return null;
+    }
+  };
+
   return (
     <div className="App">
       {!isLoggedIn ? (
@@ -217,6 +246,7 @@ function App() {
           onLogout={handleLogout}
           onRefresh={handleRefresh}
           onTimeRangeChange={handleTimeRangeChange}
+          fetchLineItemDetails={fetchLineItemDetails}
         />
       )}
     </div>
