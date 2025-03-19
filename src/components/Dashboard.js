@@ -183,11 +183,14 @@ export const Dashboard = ({
           </div>
 
           {/* New Section for Detailed Line Items (Interactive) */}
-          <div className="chart-container">
+          <div className="chart-container scrollable">
             <h3 className="chart-title">
               {selectedCategory ? `Line Items: ${selectedCategory}` : 'Detailed Line Items'}
             </h3>
-            <div className="chart" style={{ height: selectedCategory ? "600px" : "400px" }}>
+            <div className="chart" style={{ 
+              height: selectedCategory ? "600px" : "550px",
+              overflowY: selectedCategory ? "auto" : "hidden" // Add scroll when needed
+            }}>
               {selectedCategory ? (
                 <LineItemExplorer
                   detailedLineItems={detailedLineItems}

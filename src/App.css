@@ -381,3 +381,47 @@ th {
 canvas.clickable-chart {
   cursor: pointer;
 }
+
+/* Scrollable chart container styles */
+.chart-container.scrollable {
+  padding-right: 0;
+}
+
+.chart-container.scrollable .chart {
+  padding-right: 20px; /* Add padding for scrollbar */
+}
+
+/* Style for load more / show all buttons */
+.load-more-btn, .show-all-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  background-color: #e5e7eb;
+  color: #374151;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 5px;
+}
+
+.load-more-btn:hover, .show-all-btn:hover {
+  background-color: #d1d5db;
+}
+
+/* Increase scrollbar visibility */
+.chart::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chart::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.chart::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.chart::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}

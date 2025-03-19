@@ -14,6 +14,7 @@ export const DetailedLineItemsChart = ({
     values: [],
     colors: []
   });
+  const [displayCount, setDisplayCount] = useState(20); // Default display count
 
   // Process data for the chart
   useEffect(() => {
@@ -40,14 +41,13 @@ export const DetailedLineItemsChart = ({
     
     // Sort categories by amount (descending)
     const sortedCategories = Object.entries(categorySpend)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10); // Limit to top 10 for readability
+      .sort((a, b) => b[1] - a[1]);
     
     const labels = sortedCategories.map(([category]) => category);
     const values = sortedCategories.map(([, amount]) => amount);
     
-    // Generate colors for each category
-    const colors = [
+    // Generate colors for each category - repeating if needed
+    const baseColors = [
       'rgba(59, 130, 246, 0.8)', // blue
       'rgba(16, 185, 129, 0.8)', // green
       'rgba(245, 158, 11, 0.8)', // amber
@@ -59,6 +59,12 @@ export const DetailedLineItemsChart = ({
       'rgba(52, 211, 153, 0.8)', // light green
       'rgba(167, 139, 250, 0.8)', // light purple
     ];
+    
+    // Repeat the colors as needed to cover all categories
+    const colors = [];
+    for (let i = 0; i < labels.length; i++) {
+      colors.push(baseColors[i % baseColors.length]);
+    }
     
     setChartData({ labels, values, colors });
     
@@ -74,14 +80,19 @@ export const DetailedLineItemsChart = ({
 
     const ctx = chartRef.current.getContext('2d');
     
+    // Only show the number of items specified by displayCount
+    const displayLabels = chartData.labels.slice(0, displayCount);
+    const displayValues = chartData.values.slice(0, displayCount);
+    const displayColors = chartData.colors.slice(0, displayCount);
+    
     chartInstance.current = new Chart(ctx, {
       type: 'bar',
       data: { 
-        labels: chartData.labels, 
+        labels: displayLabels, 
         datasets: [{ 
           label: 'Line Item Cost', 
-          data: chartData.values, 
-          backgroundColor: chartData.colors.slice(0, chartData.labels.length), 
+          data: displayValues, 
+          backgroundColor: displayColors, 
           borderWidth: 1 
         }] 
       },
@@ -100,7 +111,7 @@ export const DetailedLineItemsChart = ({
           },
           title: {
             display: true,
-            text: 'Top 10 Detailed Line Items',
+            text: `Showing ${displayLabels.length} of ${chartData.labels.length} line items`,
             font: {
               size: 16
             }
@@ -112,7 +123,7 @@ export const DetailedLineItemsChart = ({
         onClick: (event, elements) => {
           if (elements && elements.length > 0) {
             const index = elements[0].index;
-            const category = chartData.labels[index];
+            const category = displayLabels[index];
             onCategoryClick(category);
           }
         },
@@ -141,7 +152,17 @@ export const DetailedLineItemsChart = ({
         chartInstance.current.destroy();
       }
     };
-  }, [chartData, onCategoryClick]);
+  }, [chartData, displayCount, onCategoryClick]);
+
+  // Function to load more items
+  const loadMore = () => {
+    setDisplayCount(prevCount => Math.min(prevCount + 20, chartData.labels.length));
+  };
+
+  // Function to show all items
+  const showAll = () => {
+    setDisplayCount(chartData.labels.length);
+  };
 
   // If no data available
   if (chartData.labels.length === 0) {
@@ -153,16 +174,66 @@ export const DetailedLineItemsChart = ({
   }
 
   return (
-    <div style={{ position: 'relative', height: '100%' }}>
+    <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ 
         marginBottom: '10px', 
-        fontSize: '14px', 
-        color: '#6b7280',
-        fontStyle: 'italic'
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
       }}>
-        Click on any category to see detailed line items.
+        <span style={{ 
+          fontSize: '14px', 
+          color: '#6b7280',
+          fontStyle: 'italic'
+        }}>
+          Click on any category to see detailed line items.
+        </span>
+        
+        <div>
+          <span style={{ fontSize: '14px', marginRight: '10px' }}>
+            Showing {Math.min(displayCount, chartData.labels.length)} of {chartData.labels.length} items
+          </span>
+          {displayCount < chartData.labels.length && (
+            <>
+              <button 
+                onClick={loadMore} 
+                style={{ 
+                  marginRight: '5px',
+                  padding: '4px 8px',
+                  fontSize: '12px',
+                  backgroundColor: '#e5e7eb',
+                  color: '#374151',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Load More
+              </button>
+              <button 
+                onClick={showAll} 
+                style={{ 
+                  padding: '4px 8px',
+                  fontSize: '12px',
+                  backgroundColor: '#e5e7eb',
+                  color: '#374151',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Show All
+              </button>
+            </>
+          )}
+        </div>
       </div>
-      <canvas ref={chartRef} style={{ cursor: 'pointer' }} />
+      
+      <div style={{ flex: 1, overflow: 'auto', paddingRight: '10px', height: '95%' }}>
+        <div style={{ height: `${Math.max(400, 30 * displayCount)}px` }}>
+          <canvas ref={chartRef} style={{ cursor: 'pointer' }} />
+        </div>
+      </div>
     </div>
   );
 };
