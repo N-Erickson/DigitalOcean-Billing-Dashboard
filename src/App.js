@@ -103,7 +103,7 @@ function App() {
     }
   };
 
-  // Fetch invoices from Digital Ocean API
+  // Fetch invoices from Digital Ocean API with pagination support
   const fetchInvoicesFromAPI = async (token) => {
     setIsLoading(true);
     setError('');
@@ -114,27 +114,56 @@ function App() {
         'Content-Type': 'application/json'
       };
       
-      console.log("Fetching invoices list...");
-      const response = await fetch('https://api.digitalocean.com/v2/customers/my/invoices', { 
-        method: 'GET', 
-        headers 
-      });
+      console.log("Fetching invoices list with pagination...");
       
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      // Initialize variables for pagination
+      let allInvoices = [];
+      let hasMorePages = true;
+      let pageUrl = 'https://api.digitalocean.com/v2/customers/my/invoices?per_page=100'; // Request 100 per page
       
-      const data = await response.json();
-      const invoices = data.invoices || [];
-      setAllInvoices(invoices);
-      console.log(`Retrieved ${invoices.length} invoices`, invoices);
+      // Fetch all pages
+      while (hasMorePages) {
+        console.log(`Fetching invoices page: ${pageUrl}`);
+        const response = await fetch(pageUrl, { 
+          method: 'GET', 
+          headers 
+        });
+        
+        if (!response.ok) throw new Error(`API Error: ${response.status}`);
+        
+        const data = await response.json();
+        const pageInvoices = data.invoices || [];
+        allInvoices = [...allInvoices, ...pageInvoices];
+        
+        console.log(`Retrieved ${pageInvoices.length} invoices from current page`);
+        
+        // Check for more pages
+        if (data.links && data.links.pages && data.links.pages.next) {
+          pageUrl = data.links.pages.next;
+        } else if (response.headers && response.headers.get('Link')) {
+          const linkHeader = response.headers.get('Link');
+          const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+          if (nextMatch && nextMatch[1]) {
+            pageUrl = nextMatch[1];
+          } else {
+            hasMorePages = false;
+          }
+        } else {
+          hasMorePages = false;
+        }
+      }
+      
+      setAllInvoices(allInvoices);
+      console.log(`Retrieved ${allInvoices.length} total invoices`);
       
       // Fetch both regular summaries and detailed project data
       console.log("Fetching invoice summaries...");
-      const summaries = await fetchAllInvoiceSummaries(invoices, headers);
+      const summaries = await fetchAllInvoiceSummaries(allInvoices, headers);
       setAllInvoiceSummaries(summaries);
       console.log(`Retrieved ${summaries.length} invoice summaries`, summaries.slice(0, 5));
       
       // Get detailed invoice data with project information
-      const lineItems = await fetchDetailedInvoiceData(invoices, token);
+      const lineItems = await fetchDetailedInvoiceData(allInvoices, token);
       setDetailedLineItems(lineItems);
       
       setIsLoading(false);
