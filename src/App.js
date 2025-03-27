@@ -35,12 +35,12 @@ function App() {
       
       const allLineItems = [];
       
-      // Process each invoice to get detailed line items with project info
+      // Process each invoice to get detailed line items with project and tag info
       for (const invoice of invoices) {
         console.log(`Fetching detailed data for invoice ${invoice.invoice_uuid}...`);
         
         let hasMorePages = true;
-        let pageUrl = `https://api.digitalocean.com/v2/customers/my/invoices/${invoice.invoice_uuid}?per_page=100`;
+        let pageUrl = `https://api.digitalocean.com/v2/customers/my/invoices/${invoice.invoice_uuid}?per_page=100&include_tags=true`;
         
         while (hasMorePages) {
           const detailedResponse = await fetch(pageUrl, {
@@ -55,28 +55,78 @@ function App() {
           
           const detailedData = await detailedResponse.json();
           
-          // Extract line items with project information
+          // Extract line items with project information and tags
           const lineItems = detailedData.invoice_items || [];
           
           // Add invoice information to each line item
-          const processedItems = lineItems.map(item => ({
-            ...item,
-            invoice_uuid: invoice.invoice_uuid,
-            invoice_period: invoice.invoice_period,
-            invoice_date: invoice.date || invoice.created_at
-          }));
+          const processedItems = lineItems.map(item => {
+            // Extract any tag information if available
+            const tags = {};
+            
+            // Check if there are tags in the meta data
+            if (item.metadata && Array.isArray(item.metadata)) {
+              item.metadata.forEach(metaItem => {
+                if (metaItem.key && metaItem.key.startsWith('tag:')) {
+                  // Extract tag key from format "tag:key"
+                  const tagKey = metaItem.key.substring(4);
+                  tags[tagKey] = metaItem.value;
+                }
+              });
+            }
+            
+            // DigitalOcean might also include tags directly
+            if (item.tags && Array.isArray(item.tags)) {
+              item.tags.forEach(tag => {
+                // Tags might be in format "key:value" or just as values
+                if (tag.includes(':')) {
+                  const [key, value] = tag.split(':');
+                  tags[key] = value;
+                } else {
+                  // If no key is specified, use the tag as both key and value
+                  tags[tag] = tag;
+                }
+              });
+            }
+            
+            return {
+              ...item,
+              invoice_uuid: invoice.invoice_uuid,
+              invoice_period: invoice.invoice_period,
+              invoice_date: invoice.date || invoice.created_at,
+              tags: Object.keys(tags).length > 0 ? tags : undefined
+            };
+          });
           
           allLineItems.push(...processedItems);
           console.log(`Added ${processedItems.length} line items from invoice ${invoice.invoice_uuid}`);
           
+          // Log tag information for debugging
+          const itemsWithTags = processedItems.filter(item => item.tags && Object.keys(item.tags).length > 0);
+          if (itemsWithTags.length > 0) {
+            console.log(`Found ${itemsWithTags.length} items with tags in invoice ${invoice.invoice_uuid}`);
+            // Log sample of tag keys found
+            const tagKeys = new Set();
+            itemsWithTags.forEach(item => {
+              Object.keys(item.tags).forEach(key => tagKeys.add(key));
+            });
+            console.log(`Tag keys found: ${Array.from(tagKeys).join(', ')}`);
+          }
+          
           // Check for more pages
           if (detailedData.links && detailedData.links.pages && detailedData.links.pages.next) {
+            // Ensure we maintain the include_tags parameter
             pageUrl = detailedData.links.pages.next;
+            if (!pageUrl.includes('include_tags=true')) {
+              pageUrl += (pageUrl.includes('?') ? '&' : '?') + 'include_tags=true';
+            }
           } else if (detailedResponse.headers && detailedResponse.headers.get('Link')) {
             const linkHeader = detailedResponse.headers.get('Link');
             const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
             if (nextMatch && nextMatch[1]) {
               pageUrl = nextMatch[1];
+              if (!pageUrl.includes('include_tags=true')) {
+                pageUrl += (pageUrl.includes('?') ? '&' : '?') + 'include_tags=true';
+              }
             } else {
               hasMorePages = false;
             }
@@ -95,6 +145,10 @@ function App() {
       // Count items with detailed descriptions
       const itemsWithDesc = allLineItems.filter(item => item.description && item.description.length > 5).length;
       console.log(`Items with detailed description: ${itemsWithDesc} out of ${allLineItems.length} (${((itemsWithDesc/allLineItems.length)*100).toFixed(1)}%)`);
+      
+      // Count items with tags
+      const itemsWithTags = allLineItems.filter(item => item.tags && Object.keys(item.tags).length > 0).length;
+      console.log(`Items with tags: ${itemsWithTags} out of ${allLineItems.length} (${((itemsWithTags/allLineItems.length)*100).toFixed(1)}%)`);
       
       return allLineItems;
     } catch (error) {

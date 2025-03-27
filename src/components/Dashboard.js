@@ -5,9 +5,11 @@ import { CategoryChart } from './charts/CategoryChart';
 import { ProjectChart } from './charts/ProjectChart';
 import { ProductChart } from './charts/ProductChart';
 import { DetailedLineItemsChart } from './charts/DetailedLineItemsChart';
+import { TagChart } from './charts/TagChart';
 import { LineItemExplorer } from './LineItemExplorer';
+import { TagItemExplorer } from './TagItemExplorer';
 import { InvoiceTable } from './InvoiceTable';
-import { formatCurrency, processData, processProjectData } from '../utils/dataUtils';
+import { formatCurrency, processData, processProjectData, processTagData } from '../utils/dataUtils';
 
 export const Dashboard = ({ 
   allInvoices, 
@@ -24,6 +26,8 @@ export const Dashboard = ({
 }) => {
   const [showDataNotice, setShowDataNotice] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedTagKey, setSelectedTagKey] = useState(null);
+  const [selectedTagValue, setSelectedTagValue] = useState(null);
   const [processedData, setProcessedData] = useState({
     monthlyData: { labels: [], values: [] },
     categoryData: {},
@@ -39,6 +43,10 @@ export const Dashboard = ({
     }
   });
   const [projectData, setProjectData] = useState({});
+  const [tagData, setTagData] = useState({
+    tagKeys: [],
+    tagValuesByKey: {}
+  });
 
   // Process data when invoices, summaries, or time range changes - for main charts
   useEffect(() => {
@@ -53,6 +61,15 @@ export const Dashboard = ({
     if (detailedLineItems.length > 0 && allInvoices.length > 0) {
       const data = processProjectData(detailedLineItems, timeRange, allInvoices);
       setProjectData(data);
+    }
+  }, [detailedLineItems, allInvoices, timeRange]);
+  
+  // Process tag data
+  useEffect(() => {
+    if (detailedLineItems.length > 0 && allInvoices.length > 0) {
+      const data = processTagData(detailedLineItems, timeRange, allInvoices);
+      setTagData(data);
+      console.log("Processed tag data:", data);
     }
   }, [detailedLineItems, allInvoices, timeRange]);
 
@@ -94,6 +111,18 @@ export const Dashboard = ({
   const handleCategoryClick = (category) => {
     console.log(`Selected category: ${category}`);
     setSelectedCategory(category);
+    // Reset tag selection when category is selected
+    setSelectedTagKey(null);
+    setSelectedTagValue(null);
+  };
+
+  // Handle tag click for drill-down
+  const handleTagClick = (tagKey, tagValue) => {
+    console.log(`Selected tag: ${tagKey}=${tagValue}`);
+    setSelectedTagKey(tagKey);
+    setSelectedTagValue(tagValue);
+    // Reset category selection when tag is selected
+    setSelectedCategory(null);
   };
 
   // Close data notice
@@ -182,20 +211,33 @@ export const Dashboard = ({
             </div>
           </div>
 
-          {/* New Section for Detailed Line Items (Interactive) */}
+          {/* Line Items Chart Section */}
           <div className="chart-container scrollable">
             <h3 className="chart-title">
-              {selectedCategory ? `Line Items: ${selectedCategory}` : 'Detailed Line Items'}
+              {selectedCategory ? `Line Items: ${selectedCategory}` : 
+               (selectedTagKey && selectedTagValue) ? `Resources Tagged with ${selectedTagKey}=${selectedTagValue}` : 
+               'Detailed Line Items'}
             </h3>
             <div className="chart" style={{ 
-              height: selectedCategory ? "600px" : "550px",
-              overflowY: selectedCategory ? "auto" : "hidden" // Add scroll when needed
+              height: (selectedCategory || (selectedTagKey && selectedTagValue)) ? "600px" : "550px",
+              overflowY: (selectedCategory || (selectedTagKey && selectedTagValue)) ? "auto" : "hidden" // Add scroll when needed
             }}>
               {selectedCategory ? (
                 <LineItemExplorer
                   detailedLineItems={detailedLineItems}
                   selectedCategory={selectedCategory}
                   onBack={() => setSelectedCategory(null)}
+                  timeRange={timeRange}
+                />
+              ) : (selectedTagKey && selectedTagValue) ? (
+                <TagItemExplorer
+                  detailedLineItems={detailedLineItems}
+                  selectedTagKey={selectedTagKey}
+                  selectedTagValue={selectedTagValue}
+                  onBack={() => {
+                    setSelectedTagKey(null);
+                    setSelectedTagValue(null);
+                  }}
                   timeRange={timeRange}
                 />
               ) : (
@@ -213,6 +255,28 @@ export const Dashboard = ({
             <div className="chart">
               <ProductChart data={processedData.productData} />
             </div>
+          </div>
+          
+          {/* Tag Chart Section */}
+          <div className="chart-container">
+            <h3 className="chart-title">Spend by Tags</h3>
+            {tagData.tagKeys.length === 0 ? (
+              <div className="note" style={{ marginBottom: "10px", color: "#666", fontSize: "14px", padding: "20px" }}>
+                <p>No tag data available in your line items.</p>
+                <p style={{ marginTop: "10px" }}>
+                  To use this feature, ensure your DigitalOcean resources are tagged and tag data is included in the API response. 
+                  Tags help allocate costs to business units, projects, or environments.
+                </p>
+              </div>
+            ) : (
+              <div className="chart" style={{ height: "400px" }}>
+                <TagChart 
+                  detailedLineItems={detailedLineItems}
+                  timeRange={timeRange}
+                  onTagClick={handleTagClick}
+                />
+              </div>
+            )}
           </div>
 
           <InvoiceTable 

@@ -73,6 +73,102 @@ const extractProjectName = (item) => {
   return 'Unassigned';
 };
 
+// Function to process billing data by tags
+export const processTagData = (detailedLineItems, selectedRange, invoices) => {
+  if (!detailedLineItems || detailedLineItems.length === 0) {
+    return { tagKeys: [], tagValuesByKey: {} };
+  }
+  
+  // Filter invoices by time range
+  const filteredInvoices = filterInvoicesByTimeRange(invoices, selectedRange);
+  
+  // Get set of invoice UUIDs for the selected time range
+  const invoiceIds = new Set(filteredInvoices.map(invoice => invoice.invoice_uuid));
+  
+  // Extract tags from filtered line items
+  const tagKeys = new Set();
+  const tagValuesByKey = {};
+  const tagSpendByKeyValue = {};
+  
+  // Process each line item
+  detailedLineItems.forEach(item => {
+    // Only process items from the filtered invoices
+    if (!item.invoice_uuid || !invoiceIds.has(item.invoice_uuid)) {
+      return;
+    }
+    
+    // Skip items without tags
+    if (!item.tags || typeof item.tags !== 'object') {
+      return;
+    }
+    
+    const amount = parseFloat(item.amount) || 0;
+    
+    // Process each tag on this line item
+    Object.entries(item.tags).forEach(([key, value]) => {
+      // Add tag key to set of known keys
+      tagKeys.add(key);
+      
+      // Initialize set for this tag key if needed
+      if (!tagValuesByKey[key]) {
+        tagValuesByKey[key] = new Set();
+        tagSpendByKeyValue[key] = {};
+      }
+      
+      // Add tag value to set of known values for this key
+      tagValuesByKey[key].add(value);
+      
+      // Initialize spend amount for this tag key-value pair
+      if (!tagSpendByKeyValue[key][value]) {
+        tagSpendByKeyValue[key][value] = 0;
+      }
+      
+      // Add amount to tag key-value spend
+      tagSpendByKeyValue[key][value] += amount;
+    });
+  });
+  
+  // Convert Sets to Arrays for easier use
+  const result = {
+    tagKeys: Array.from(tagKeys),
+    tagValuesByKey: {}
+  };
+  
+  // Convert tag values Sets to Arrays and include spend data
+  tagKeys.forEach(key => {
+    result.tagValuesByKey[key] = {
+      values: Array.from(tagValuesByKey[key]),
+      spend: tagSpendByKeyValue[key]
+    };
+  });
+  
+  return result;
+};
+
+// Function to get resources with a specific tag
+export const getResourcesByTag = (detailedLineItems, tagKey, tagValue, selectedRange, invoices) => {
+  if (!detailedLineItems || detailedLineItems.length === 0 || !tagKey || !tagValue) {
+    return [];
+  }
+  
+  // Filter invoices by time range
+  const filteredInvoices = filterInvoicesByTimeRange(invoices, selectedRange);
+  
+  // Get set of invoice UUIDs for the selected time range
+  const invoiceIds = new Set(filteredInvoices.map(invoice => invoice.invoice_uuid));
+  
+  // Filter line items by tag key and value
+  return detailedLineItems.filter(item => {
+    if (!item.invoice_uuid || !invoiceIds.has(item.invoice_uuid)) {
+      return false;
+    }
+    
+    return item.tags && 
+           typeof item.tags === 'object' && 
+           item.tags[tagKey] === tagValue;
+  });
+};
+
 // Process project data from detailed line items
 export const processProjectData = (detailedLineItems, selectedRange, invoices) => {
   if (!detailedLineItems || detailedLineItems.length === 0) {
