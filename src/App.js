@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { LoginForm } from './components/LoginForm';
 import { Dashboard } from './components/Dashboard';
+import { AccountSelector } from './components/AccountSelector';
 import './App.css';
 
 function App() {
+  // Multi-account state
+  const [accounts, setAccounts] = useState([]);
+  const [currentAccountIndex, setCurrentAccountIndex] = useState(0);
+  
+  // Original state - now per account
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [apiToken, setApiToken] = useState('');
   const [allInvoices, setAllInvoices] = useState([]);
   const [allInvoiceSummaries, setAllInvoiceSummaries] = useState([]);
   const [detailedLineItems, setDetailedLineItems] = useState([]);
@@ -14,12 +19,17 @@ function App() {
   const [timeRange, setTimeRange] = useState('6months');
 
   useEffect(() => {
-    // Check for stored token and auto-login
-    const storedToken = localStorage.getItem('doApiToken');
-    if (storedToken) {
-      setApiToken(storedToken);
-      setIsLoggedIn(true);
-      fetchInvoicesFromAPI(storedToken);
+    // Check for stored accounts and auto-login
+    const storedAccounts = localStorage.getItem('doAccounts');
+    if (storedAccounts) {
+      const parsedAccounts = JSON.parse(storedAccounts);
+      if (parsedAccounts.length > 0) {
+        setAccounts(parsedAccounts);
+        setIsLoggedIn(true);
+        
+        // Load data for the first account by default
+        fetchInvoicesFromAPI(parsedAccounts[0].token);
+      }
     }
   }, []);
 
@@ -204,28 +214,74 @@ function App() {
     }
   };
 
-  // Handle login
-  const handleLogin = (token) => {
-    localStorage.setItem('doApiToken', token);
-    setApiToken(token);
+  // Handle adding a new account
+  const handleAddAccount = (name, token) => {
+    // Create new account object
+    const newAccount = { name, token };
+    
+    // Update accounts list
+    const updatedAccounts = [...accounts, newAccount];
+    setAccounts(updatedAccounts);
+    
+    // Store in localStorage
+    localStorage.setItem('doAccounts', JSON.stringify(updatedAccounts));
+    
+    // Set as current account if it's the first one
+    if (updatedAccounts.length === 1) {
+      setCurrentAccountIndex(0);
+    }
+    
     setIsLoggedIn(true);
     fetchInvoicesFromAPI(token);
   };
 
-  // Handle logout
+  // Handle switching between accounts
+  const handleAccountSwitch = (index) => {
+    if (index >= 0 && index < accounts.length) {
+      setCurrentAccountIndex(index);
+      fetchInvoicesFromAPI(accounts[index].token);
+    }
+  };
+
+  // Handle removing an account
+  const handleRemoveAccount = (index) => {
+    // Create a copy of accounts without the one being removed
+    const updatedAccounts = [...accounts];
+    updatedAccounts.splice(index, 1);
+    
+    // Update state and localStorage
+    setAccounts(updatedAccounts);
+    localStorage.setItem('doAccounts', JSON.stringify(updatedAccounts));
+    
+    // Handle what happens after removal
+    if (updatedAccounts.length === 0) {
+      // No accounts left, go back to login
+      setIsLoggedIn(false);
+    } else if (index === currentAccountIndex) {
+      // Current account was removed, switch to first account
+      setCurrentAccountIndex(0);
+      fetchInvoicesFromAPI(updatedAccounts[0].token);
+    } else if (index < currentAccountIndex) {
+      // Account before current was removed, adjust index
+      setCurrentAccountIndex(currentAccountIndex - 1);
+    }
+  };
+
+  // Handle logout (all accounts)
   const handleLogout = () => {
-    localStorage.removeItem('doApiToken');
-    setApiToken('');
+    localStorage.removeItem('doAccounts');
+    setAccounts([]);
+    setCurrentAccountIndex(0);
     setIsLoggedIn(false);
     setAllInvoices([]);
     setAllInvoiceSummaries([]);
     setDetailedLineItems([]);
   };
 
-  // Handle refresh
+  // Handle refresh (current account)
   const handleRefresh = () => {
-    if (apiToken) {
-      fetchInvoicesFromAPI(apiToken);
+    if (accounts.length > 0 && currentAccountIndex < accounts.length) {
+      fetchInvoicesFromAPI(accounts[currentAccountIndex].token);
     }
   };
 
@@ -236,11 +292,13 @@ function App() {
 
   // Fetch additional line item details for a specific invoice
   const fetchLineItemDetails = async (invoiceId) => {
-    if (!apiToken || !invoiceId) return null;
+    if (accounts.length === 0 || currentAccountIndex >= accounts.length || !invoiceId) {
+      return null;
+    }
     
     try {
       const headers = {
-        'Authorization': `Bearer ${apiToken}`,
+        'Authorization': `Bearer ${accounts[currentAccountIndex].token}`,
         'Content-Type': 'application/json'
       };
       
@@ -262,21 +320,32 @@ function App() {
   return (
     <div className="App">
       {!isLoggedIn ? (
-        <LoginForm onLogin={handleLogin} />
+        <LoginForm onAddAccount={handleAddAccount} />
       ) : (
-        <Dashboard 
-          allInvoices={allInvoices}
-          allInvoiceSummaries={allInvoiceSummaries}
-          detailedLineItems={detailedLineItems}
-          isLoading={isLoading}
-          error={error}
-          apiToken={apiToken}
-          timeRange={timeRange}
-          onLogout={handleLogout}
-          onRefresh={handleRefresh}
-          onTimeRangeChange={handleTimeRangeChange}
-          fetchLineItemDetails={fetchLineItemDetails}
-        />
+        <>
+          {/* Account Selector is now floating and not part of the main layout */}
+          <AccountSelector 
+            accounts={accounts}
+            currentIndex={currentAccountIndex}
+            onSwitchAccount={handleAccountSwitch}
+            onRemoveAccount={handleRemoveAccount}
+            onAddAccount={handleAddAccount}
+          />
+          <Dashboard 
+            accountName={accounts[currentAccountIndex]?.name || 'Unknown Account'}
+            allInvoices={allInvoices}
+            allInvoiceSummaries={allInvoiceSummaries}
+            detailedLineItems={detailedLineItems}
+            isLoading={isLoading}
+            error={error}
+            apiToken={accounts[currentAccountIndex]?.token}
+            timeRange={timeRange}
+            onLogout={handleLogout}
+            onRefresh={handleRefresh}
+            onTimeRangeChange={handleTimeRangeChange}
+            fetchLineItemDetails={fetchLineItemDetails}
+          />
+        </>
       )}
     </div>
   );

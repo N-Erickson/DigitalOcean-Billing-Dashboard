@@ -10,6 +10,7 @@ import { InvoiceTable } from './InvoiceTable';
 import { formatCurrency, processData, processProjectData } from '../utils/dataUtils';
 
 export const Dashboard = ({ 
+  accountName,
   allInvoices, 
   allInvoiceSummaries, 
   detailedLineItems,
@@ -84,7 +85,7 @@ export const Dashboard = ({
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `do_billing_${new Date().toISOString().slice(0,10)}.csv`;
+    link.download = `${accountName.replace(/\s+/g, '_').toLowerCase()}_billing_${new Date().toISOString().slice(0,10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -104,7 +105,10 @@ export const Dashboard = ({
   return (
     <div className="container">
       <header>
-        <h1>DigitalOcean FinOps Dashboard</h1>
+        <div className="header-title">
+          <h1>DigitalOcean FinOps Dashboard</h1>
+          <span className="account-badge">{accountName}</span>
+        </div>
         <div className="controls">
           <select 
             id="timeRange" 
@@ -131,14 +135,14 @@ export const Dashboard = ({
 
       {showDataNotice && apiToken && (
         <div className="data-source-notice">
-          Connected to DigitalOcean API - Using real billing data 
+          Connected to DigitalOcean API - Using real billing data for account: {accountName}
           <button className="close-btn" onClick={closeDataNotice}>×</button>
         </div>
       )}
 
       {isLoading && (
         <div className="loading-indicator">
-          <div className="loading-spinner"></div> Loading your DigitalOcean billing data...
+          <div className="loading-spinner"></div> Loading {accountName}'s DigitalOcean billing data...
         </div>
       )}
 
@@ -151,10 +155,10 @@ export const Dashboard = ({
 
       {!isLoading && (
         <>
-          <SummaryCards summary={processedData.summary} />
+          <SummaryCards summary={processedData.summary} accountName={accountName} />
 
           <div className="chart-container">
-            <h3 className="chart-title">Monthly Spend Trend</h3>
+            <h3 className="chart-title">Monthly Spend Trend - {accountName}</h3>
             <div className="chart">
               <MonthlyChart data={processedData.monthlyData} />
             </div>
@@ -182,10 +186,12 @@ export const Dashboard = ({
             </div>
           </div>
 
-          {/* New Section for Detailed Line Items (Interactive) */}
+          {/* Detailed Line Items (Interactive) */}
           <div className="chart-container scrollable">
             <h3 className="chart-title">
-              {selectedCategory ? `Line Items: ${selectedCategory}` : 'Detailed Line Items'}
+              {selectedCategory 
+                ? `Line Items: ${selectedCategory} - ${accountName}` 
+                : `Detailed Line Items - ${accountName}`}
             </h3>
             <div className="chart" style={{ 
               height: selectedCategory ? "600px" : "550px",
@@ -197,19 +203,21 @@ export const Dashboard = ({
                   selectedCategory={selectedCategory}
                   onBack={() => setSelectedCategory(null)}
                   timeRange={timeRange}
+                  accountName={accountName}
                 />
               ) : (
                 <DetailedLineItemsChart 
                   detailedLineItems={detailedLineItems}
                   timeRange={timeRange}
                   onCategoryClick={handleCategoryClick}
+                  accountName={accountName}
                 />
               )}
             </div>
           </div>
 
           <div className="chart-container">
-            <h3 className="chart-title">Spend by Product</h3>
+            <h3 className="chart-title">Spend by Product - {accountName}</h3>
             <div className="chart">
               <ProductChart data={processedData.productData} />
             </div>
@@ -218,7 +226,8 @@ export const Dashboard = ({
           <InvoiceTable 
             invoices={allInvoices} 
             timeRange={timeRange} 
-            apiToken={apiToken} 
+            apiToken={apiToken}
+            accountName={accountName}
           />
         </>
       )}

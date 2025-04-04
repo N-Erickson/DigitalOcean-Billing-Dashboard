@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatCurrency, filterInvoicesByTimeRange } from '../utils/dataUtils';
 
-export const InvoiceTable = ({ invoices, timeRange, apiToken }) => {
+export const InvoiceTable = ({ invoices, timeRange, apiToken, accountName }) => {
   const filteredInvoices = filterInvoicesByTimeRange(invoices, timeRange);
   
   const downloadInvoiceCSV = async (uuid) => {
@@ -29,7 +29,8 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken }) => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `invoice_${uuid}_${new Date().toISOString().slice(0,10)}.csv`;
+      // Include account name in the file name for easier identification
+      link.download = `${accountName.replace(/\s+/g, '_').toLowerCase()}_invoice_${uuid}_${new Date().toISOString().slice(0,10)}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -50,7 +51,7 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken }) => {
 
   return (
     <div className="table-container">
-      <h3 className="chart-title">Recent Invoices</h3>
+      <h3 className="chart-title">Recent Invoices - {accountName}</h3>
       <table>
         <thead>
           <tr>

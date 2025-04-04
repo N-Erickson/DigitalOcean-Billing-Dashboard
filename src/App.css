@@ -22,6 +22,21 @@ header {
   border-bottom: 1px solid #e5e7eb;
 }
 
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-badge {
+  background-color: #3b82f6;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 h1 {
   margin: 0;
   color: #111827;
@@ -122,8 +137,21 @@ button:disabled {
   text-align: center;
 }
 
+.intro-text {
+  margin-bottom: 20px;
+  color: #6b7280;
+  text-align: center;
+}
+
 .form-group {
   margin-bottom: 20px;
+}
+
+.form-text {
+  display: block;
+  margin-top: 5px;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 label {
@@ -424,4 +452,335 @@ canvas.clickable-chart {
 
 .chart::-webkit-scrollbar-thumb:hover {
   background: #a1a1a1;
+}
+
+/* Account Selector Slide-Out Menu Styles */
+
+/* Container for the account selector system */
+.account-selector-container {
+  position: relative;
+  z-index: 1000; /* Ensure the menu appears above other content */
+}
+
+/* The toggle button that's always visible */
+.account-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  width: auto;
+  transition: background-color 0.2s;
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1010;
+}
+
+.account-menu-toggle:hover {
+  background-color: #f3f4f6;
+}
+
+.account-menu-toggle.active {
+  background-color: #3b82f6;
+  color: white;
+  border-color: #2563eb;
+}
+
+.current-account-name {
+  margin-right: 10px;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-icon {
+  font-size: 18px;
+}
+
+/* The slide-out panel */
+.account-panel {
+  position: fixed;
+  top: 0;
+  right: -360px; /* Hide it offscreen initially */
+  width: 350px;
+  height: 100vh;
+  background-color: white;
+  box-shadow: -4px 0 15px rgba(0,0,0,0.1);
+  transition: right 0.3s ease-in-out;
+  z-index: 1005;
+  overflow-y: auto;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.account-panel.open {
+  right: 0;
+}
+
+/* Panel header */
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 22px;
+  color: #111827;
+}
+
+.close-panel {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-panel:hover {
+  color: #111827;
+}
+
+/* Current account info */
+.current-account-info {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.current-account-info h3 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  color: #6b7280;
+}
+
+.account-badge {
+  display: inline-block;
+  background-color: #3b82f6;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Account actions */
+.account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.add-account-btn {
+  width: 100%;
+  padding: 10px;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-account-btn:hover {
+  background-color: #059669;
+}
+
+/* Account switcher */
+.account-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.account-switcher label {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.account-dropdown {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+}
+
+/* Add account form */
+.add-account-form {
+  background-color: #f9fafb;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.add-account-form h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #111827;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-buttons {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.form-buttons button {
+  padding: 8px 16px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.form-buttons button:hover {
+  background-color: #2563eb;
+}
+
+/* Accounts list */
+.accounts-list {
+  margin-top: 20px;
+}
+
+.accounts-list h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 16px;
+  color: #111827;
+}
+
+.accounts-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.accounts-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 15px;
+  border-bottom: 1px solid #e5e7eb;
+  transition: background-color 0.2s;
+}
+
+.accounts-list li:last-child {
+  border-bottom: none;
+}
+
+.accounts-list li:hover {
+  background-color: #f9fafb;
+}
+
+.accounts-list li.active {
+  background-color: #eff6ff;
+}
+
+.account-name {
+  font-weight: 500;
+  color: #111827;
+}
+
+.account-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.switch-btn {
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.switch-btn:hover {
+  background-color: #2563eb;
+}
+
+.switch-btn:disabled {
+  background-color: #93c5fd;
+  cursor: not-allowed;
+}
+
+.remove-btn {
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.remove-btn:hover {
+  background-color: #dc2626;
+}
+
+/* Overlay for closing menu when clicking outside */
+.account-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0,0,0,0.3);
+  z-index: 1000;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .account-panel {
+    width: 100%;
+    right: -100%;
+  }
+  
+  .account-menu-toggle {
+    top: 15px;
+    right: 15px;
+  }
 }
