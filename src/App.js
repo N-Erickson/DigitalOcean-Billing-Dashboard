@@ -9,7 +9,10 @@ function App() {
   const [accounts, setAccounts] = useState([]);
   const [currentAccountIndex, setCurrentAccountIndex] = useState(0);
   
-  // Original state - now per account
+  // Account data cache - stores data for each account to avoid reloading
+  const [accountsData, setAccountsData] = useState({});
+  
+  // Current view state - what's displayed in the UI
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [allInvoices, setAllInvoices] = useState([]);
   const [allInvoiceSummaries, setAllInvoiceSummaries] = useState([]);
@@ -28,7 +31,8 @@ function App() {
         setIsLoggedIn(true);
         
         // Load data for the first account by default
-        fetchInvoicesFromAPI(parsedAccounts[0].token);
+        const firstAccount = parsedAccounts[0];
+        fetchInvoicesFromAPI(firstAccount.token, firstAccount.name);
       }
     }
   }, []);
@@ -114,7 +118,7 @@ function App() {
   };
 
   // Fetch invoices from Digital Ocean API with pagination support
-  const fetchInvoicesFromAPI = async (token) => {
+  const fetchInvoicesFromAPI = async (token, accountId) => {
     setIsLoading(true);
     setError('');
     
@@ -124,10 +128,10 @@ function App() {
         'Content-Type': 'application/json'
       };
       
-      console.log("Fetching invoices list with pagination...");
+      console.log(`Fetching invoices list for account: ${accountId}...`);
       
       // Initialize variables for pagination
-      let allInvoices = [];
+      let fetchedInvoices = [];
       let hasMorePages = true;
       let pageUrl = 'https://api.digitalocean.com/v2/customers/my/invoices?per_page=100'; // Request 100 per page
       
@@ -143,7 +147,7 @@ function App() {
         
         const data = await response.json();
         const pageInvoices = data.invoices || [];
-        allInvoices = [...allInvoices, ...pageInvoices];
+        fetchedInvoices = [...fetchedInvoices, ...pageInvoices];
         
         console.log(`Retrieved ${pageInvoices.length} invoices from current page`);
         
@@ -163,17 +167,29 @@ function App() {
         }
       }
       
-      setAllInvoices(allInvoices);
-      console.log(`Retrieved ${allInvoices.length} total invoices`);
+      console.log(`Retrieved ${fetchedInvoices.length} total invoices`);
       
       // Fetch both regular summaries and detailed project data
       console.log("Fetching invoice summaries...");
-      const summaries = await fetchAllInvoiceSummaries(allInvoices, headers);
-      setAllInvoiceSummaries(summaries);
+      const summaries = await fetchAllInvoiceSummaries(fetchedInvoices, headers);
       console.log(`Retrieved ${summaries.length} invoice summaries`, summaries.slice(0, 5));
       
       // Get detailed invoice data with project information
-      const lineItems = await fetchDetailedInvoiceData(allInvoices, token);
+      const lineItems = await fetchDetailedInvoiceData(fetchedInvoices, token);
+      
+      // Store the fetched data in the accounts cache
+      setAccountsData(prevData => ({
+        ...prevData,
+        [accountId]: {
+          invoices: fetchedInvoices,
+          invoiceSummaries: summaries,
+          detailedLineItems: lineItems
+        }
+      }));
+      
+      // Update the current view
+      setAllInvoices(fetchedInvoices);
+      setAllInvoiceSummaries(summaries);
       setDetailedLineItems(lineItems);
       
       setIsLoading(false);
@@ -232,14 +248,31 @@ function App() {
     }
     
     setIsLoggedIn(true);
-    fetchInvoicesFromAPI(token);
+    fetchInvoicesFromAPI(token, name);
   };
 
-  // Handle switching between accounts
+  // Handle switching between accounts with data caching
   const handleAccountSwitch = (index) => {
     if (index >= 0 && index < accounts.length) {
       setCurrentAccountIndex(index);
-      fetchInvoicesFromAPI(accounts[index].token);
+      
+      const account = accounts[index];
+      const accountId = account.name;
+      
+      // Check if we already have data for this account
+      if (accountsData[accountId]) {
+        console.log(`Using cached data for account: ${accountId}`);
+        
+        // Use cached data for this account
+        setAllInvoices(accountsData[accountId].invoices);
+        setAllInvoiceSummaries(accountsData[accountId].invoiceSummaries);
+        setDetailedLineItems(accountsData[accountId].detailedLineItems);
+      } else {
+        console.log(`No cached data for account: ${accountId}, fetching...`);
+        
+        // Fetch data for this account
+        fetchInvoicesFromAPI(account.token, accountId);
+      }
     }
   };
 
@@ -247,11 +280,20 @@ function App() {
   const handleRemoveAccount = (index) => {
     // Create a copy of accounts without the one being removed
     const updatedAccounts = [...accounts];
-    updatedAccounts.splice(index, 1);
+    const removedAccount = updatedAccounts.splice(index, 1)[0];
     
     // Update state and localStorage
     setAccounts(updatedAccounts);
     localStorage.setItem('doAccounts', JSON.stringify(updatedAccounts));
+    
+    // Also remove this account's data from cache
+    if (removedAccount) {
+      setAccountsData(prevData => {
+        const newData = { ...prevData };
+        delete newData[removedAccount.name];
+        return newData;
+      });
+    }
     
     // Handle what happens after removal
     if (updatedAccounts.length === 0) {
@@ -260,7 +302,18 @@ function App() {
     } else if (index === currentAccountIndex) {
       // Current account was removed, switch to first account
       setCurrentAccountIndex(0);
-      fetchInvoicesFromAPI(updatedAccounts[0].token);
+      
+      // Load data for the first account
+      const firstAccount = updatedAccounts[0];
+      if (accountsData[firstAccount.name]) {
+        // Use cached data if available
+        setAllInvoices(accountsData[firstAccount.name].invoices);
+        setAllInvoiceSummaries(accountsData[firstAccount.name].invoiceSummaries);
+        setDetailedLineItems(accountsData[firstAccount.name].detailedLineItems);
+      } else {
+        // Fetch data if not cached
+        fetchInvoicesFromAPI(firstAccount.token, firstAccount.name);
+      }
     } else if (index < currentAccountIndex) {
       // Account before current was removed, adjust index
       setCurrentAccountIndex(currentAccountIndex - 1);
@@ -276,12 +329,16 @@ function App() {
     setAllInvoices([]);
     setAllInvoiceSummaries([]);
     setDetailedLineItems([]);
+    // Clear the account data cache as well
+    setAccountsData({});
   };
 
   // Handle refresh (current account)
   const handleRefresh = () => {
     if (accounts.length > 0 && currentAccountIndex < accounts.length) {
-      fetchInvoicesFromAPI(accounts[currentAccountIndex].token);
+      const account = accounts[currentAccountIndex];
+      // Force refresh by fetching new data for the current account
+      fetchInvoicesFromAPI(account.token, account.name);
     }
   };
 
