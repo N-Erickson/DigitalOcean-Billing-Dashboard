@@ -11,18 +11,14 @@ export const ProjectChart = ({ data }) => {
       chartInstance.current.destroy();
     }
 
-    const ctx = chartRef.current.getContext('2d');
-    
-    // Check if we have meaningful project data
-    let hasRealProjectData = false;
-    let totalAmount = 0;
-    
-    for (const key in data) {
-      totalAmount += data[key];
-      if (key !== 'Unassigned' && key !== 'No Project Data' && data[key] > 0) {
-        hasRealProjectData = true;
-      }
+    // Return early if no meaningful data
+    if (!data || Object.keys(data).length === 0) {
+      console.log("No project data available for chart");
+      return;
     }
+
+    console.log("Creating project chart with data:", data);
+    const ctx = chartRef.current.getContext('2d');
     
     // Sort projects by spend amount (descending)
     const sortedData = Object.entries(data)
@@ -31,6 +27,9 @@ export const ProjectChart = ({ data }) => {
     
     const labels = sortedData.map(([key]) => key);
     const values = sortedData.map(([, value]) => value);
+    
+    // Calculate total for all projects
+    const totalAmount = Object.values(data).reduce((sum, val) => sum + val, 0);
     
     // Create chart with appropriate colors
     const backgroundColors = sortedData.map(([key]) => {
@@ -84,11 +83,14 @@ export const ProjectChart = ({ data }) => {
             display: false // Hide legend since project names are on Y-axis
           },
           title: {
-            display: totalAmount > 0,
-            text: `Total: ${formatCurrency(totalAmount)}`,
+            display: Object.keys(data).length > 15,
+            text: `Showing top 15 of ${Object.keys(data).length} projects`,
             position: 'bottom',
             padding: {
               top: 10
+            },
+            font: {
+              size: 14
             }
           }
         }
@@ -102,5 +104,25 @@ export const ProjectChart = ({ data }) => {
     };
   }, [data]);
 
-  return <canvas ref={chartRef} />;
+// Determine if we have data or need to show a message
+const hasData = data && Object.keys(data).length > 0;
+
+return (
+  <div style={{ height: '100%', position: 'relative' }}>
+    {!hasData ? (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        height: '100%',
+        color: '#6b7280',
+        fontStyle: 'italic'
+      }}>
+        No project data available
+      </div>
+    ) : (
+      <canvas ref={chartRef} />
+    )}
+  </div>
+);
 };

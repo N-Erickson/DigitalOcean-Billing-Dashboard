@@ -23,17 +23,17 @@ export const DetailedLineItemsChart = ({
       return;
     }
 
+    console.log("Processing detailed line items for chart visualization");
+    
     // Group items by category
     const categorySpend = {};
     
     detailedLineItems.forEach(item => {
-      // Determine the category
-      const category = item.name || 
-                       item.group_description || 
-                       item.description || 
-                       'Unknown';
-      
+      // Determine the category based on the exact field names from the CSV
+      const category = item.category || item.name || item.description || 'Unknown';
       const amount = parseFloat(item.amount) || 0;
+      
+      if (amount <= 0) return; // Skip zero or negative values
       
       // Add to category spending
       categorySpend[category] = (categorySpend[category] || 0) + amount;
@@ -45,6 +45,8 @@ export const DetailedLineItemsChart = ({
     
     const labels = sortedCategories.map(([category]) => category);
     const values = sortedCategories.map(([, amount]) => amount);
+    
+    console.log(`Found ${labels.length} categories with total spend:`, categorySpend);
     
     // Generate colors for each category - repeating if needed
     const baseColors = [
@@ -111,7 +113,7 @@ export const DetailedLineItemsChart = ({
           },
           title: {
             display: true,
-            text: `Showing ${displayLabels.length} of ${chartData.labels.length} line items`,
+            text: `Showing ${displayLabels.length} of ${chartData.labels.length} categories`,
             font: {
               size: 16
             }
@@ -231,7 +233,7 @@ export const DetailedLineItemsChart = ({
       
       <div style={{ flex: 1, overflow: 'auto', paddingRight: '10px', height: '95%' }}>
         <div style={{ height: `${Math.max(400, 30 * displayCount)}px` }}>
-          <canvas ref={chartRef} style={{ cursor: 'pointer' }} />
+          <canvas ref={chartRef} style={{ cursor: 'pointer' }} className="clickable-chart" />
         </div>
       </div>
     </div>

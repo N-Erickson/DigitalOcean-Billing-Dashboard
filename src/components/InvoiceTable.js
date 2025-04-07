@@ -11,6 +11,13 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken, accountName }) => 
     }
     
     try {
+      // Show a loading indicator
+      const button = document.getElementById(`csv-btn-${uuid}`);
+      if (button) {
+        button.textContent = 'Loading...';
+        button.disabled = true;
+      }
+      
       const response = await fetch(
         `https://api.digitalocean.com/v2/customers/my/invoices/${uuid}/csv`,
         {
@@ -34,9 +41,22 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken, accountName }) => 
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      // Reset the button
+      if (button) {
+        button.textContent = 'CSV';
+        button.disabled = false;
+      }
     } catch (err) {
       console.error('Error downloading invoice CSV:', err);
       alert('Failed to download invoice CSV. Check your API token or network.');
+      
+      // Reset the button
+      const button = document.getElementById(`csv-btn-${uuid}`);
+      if (button) {
+        button.textContent = 'CSV';
+        button.disabled = false;
+      }
     }
   };
 
@@ -82,7 +102,8 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken, accountName }) => 
                   <td>
                     {formatCurrency(amount)}
                     <button 
-                      className="csv-btn" 
+                      className="csv-btn"
+                      id={`csv-btn-${invoice.invoice_uuid}`}
                       onClick={() => downloadInvoiceCSV(invoice.invoice_uuid)}
                     >
                       CSV
