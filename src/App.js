@@ -7,6 +7,7 @@ import './App.css';
 // Import new CSV and storage utilities
 import { fetchAllInvoiceData, processCSVDataForVisualizations } from './utils/csvUtils';
 import { saveData, loadData, needsRefresh, clearAccountData, getCacheStatus } from './utils/storageUtils';
+import { filterLineItemsByTimeRange } from './utils/dataUtils';
 
 function App() {
   // Multi-account state
@@ -67,14 +68,17 @@ function App() {
         setDetailedLineItems(cachedLineItems.data);
         setAllInvoices(cachedInvoices.data);
         
+        // Filter line items by current time range and process
+        const filteredLineItems = filterLineItemsByTimeRange(cachedLineItems.data, timeRange);
+        
         // Either use cached processed data or process the line items again
-        if (cachedProcessedData?.data) {
+        if (cachedProcessedData?.data && cachedProcessedData.timeRange === timeRange) {
           setProcessedData(cachedProcessedData.data);
         } else {
-          const freshProcessed = processCSVDataForVisualizations(cachedLineItems.data);
+          const freshProcessed = processCSVDataForVisualizations(filteredLineItems);
           setProcessedData(freshProcessed);
           // Cache the processed data for faster loading next time
-          saveData(accountId, 'processedData', freshProcessed);
+          saveData(accountId, 'processedData', freshProcessed, { timeRange });
         }
         
         // Store in the account cache
@@ -83,7 +87,8 @@ function App() {
           [accountId]: {
             invoices: cachedInvoices.data,
             detailedLineItems: cachedLineItems.data,
-            processedData: cachedProcessedData?.data || processCSVDataForVisualizations(cachedLineItems.data)
+            processedData: cachedProcessedData?.data || processCSVDataForVisualizations(filteredLineItems),
+            timeRange
           }
         }));
         
@@ -127,13 +132,16 @@ function App() {
         return;
       }
       
+      // Filter line items by current time range
+      const filteredLineItems = filterLineItemsByTimeRange(lineItems, timeRange);
+      
       // Process the data for visualizations
-      const processedData = processCSVDataForVisualizations(lineItems);
+      const processedData = processCSVDataForVisualizations(filteredLineItems);
       
       // Save to local storage
       saveData(accountId, 'invoices', invoices);
       saveData(accountId, 'csvLineItems', lineItems);
-      saveData(accountId, 'processedData', processedData);
+      saveData(accountId, 'processedData', processedData, { timeRange });
       
       // Update the cache status
       setCacheStatus(getCacheStatus(accountId));
@@ -149,7 +157,8 @@ function App() {
         [accountId]: {
           invoices: invoices,
           detailedLineItems: lineItems,
-          processedData: processedData
+          processedData: processedData,
+          timeRange
         }
       }));
       
@@ -172,12 +181,15 @@ function App() {
           setDetailedLineItems(cachedLineItems.data);
           setAllInvoices(cachedInvoices.data);
           
+          // Filter line items by current time range
+          const filteredLineItems = filterLineItemsByTimeRange(cachedLineItems.data, timeRange);
+          
           // Process or load cached processed data
           const cachedProcessedData = loadData(accountId, 'processedData');
-          if (cachedProcessedData?.data) {
+          if (cachedProcessedData?.data && cachedProcessedData.timeRange === timeRange) {
             setProcessedData(cachedProcessedData.data);
           } else {
-            setProcessedData(processCSVDataForVisualizations(cachedLineItems.data));
+            setProcessedData(processCSVDataForVisualizations(filteredLineItems));
           }
         } else {
           setError('Error connecting to DigitalOcean API. CORS issues may prevent direct API access from a browser. Try using a browser extension or setting up a proxy server.');
@@ -227,7 +239,26 @@ function App() {
         // Use in-memory cached data for this account
         setAllInvoices(accountsData[accountId].invoices);
         setDetailedLineItems(accountsData[accountId].detailedLineItems);
-        setProcessedData(accountsData[accountId].processedData);
+        
+        // Check if we have processed data for current time range
+        if (accountsData[accountId].timeRange === timeRange && accountsData[accountId].processedData) {
+          setProcessedData(accountsData[accountId].processedData);
+        } else {
+          // Recalculate for current time range
+          const filteredItems = filterLineItemsByTimeRange(accountsData[accountId].detailedLineItems, timeRange);
+          const newProcessed = processCSVDataForVisualizations(filteredItems);
+          setProcessedData(newProcessed);
+          
+          // Update account data cache with new time range and processed data
+          setAccountsData(prevData => ({
+            ...prevData,
+            [accountId]: {
+              ...prevData[accountId],
+              processedData: newProcessed,
+              timeRange
+            }
+          }));
+        }
         
         // Check if we should refresh in the background
         const cachedStatus = getCacheStatus(accountId);
@@ -284,7 +315,18 @@ function App() {
         // Use cached data if available
         setAllInvoices(accountsData[firstAccount.name].invoices);
         setDetailedLineItems(accountsData[firstAccount.name].detailedLineItems);
-        setProcessedData(accountsData[firstAccount.name].processedData);
+        
+        // Check if we need to recalculate for time range
+        if (accountsData[firstAccount.name].timeRange === timeRange) {
+          setProcessedData(accountsData[firstAccount.name].processedData);
+        } else {
+          // Filter for current time range
+          const filteredItems = filterLineItemsByTimeRange(
+            accountsData[firstAccount.name].detailedLineItems, 
+            timeRange
+          );
+          setProcessedData(processCSVDataForVisualizations(filteredItems));
+        }
         
         // Check if we should refresh
         const cachedStatus = getCacheStatus(firstAccount.name);
@@ -343,6 +385,34 @@ function App() {
   // Handle time range change
   const handleTimeRangeChange = (newRange) => {
     setTimeRange(newRange);
+    
+    // Recalculate processed data for the new time range if we have line items
+    if (accounts.length > 0 && currentAccountIndex < accounts.length && detailedLineItems.length > 0) {
+      const accountId = accounts[currentAccountIndex].name;
+      
+      // Filter line items by the new time range
+      const filteredLineItems = filterLineItemsByTimeRange(detailedLineItems, newRange);
+      console.log(`Filtered line items for new time range ${newRange}: ${filteredLineItems.length} of ${detailedLineItems.length}`);
+      
+      // Process the filtered line items for visualizations
+      const newProcessedData = processCSVDataForVisualizations(filteredLineItems);
+      
+      // Update the processed data
+      setProcessedData(newProcessedData);
+      
+      // Update in-memory cache for this account with new time range
+      setAccountsData(prevData => ({
+        ...prevData,
+        [accountId]: {
+          ...prevData[accountId],
+          processedData: newProcessedData,
+          timeRange: newRange
+        }
+      }));
+      
+      // Save to local storage with time range info
+      saveData(accountId, 'processedData', newProcessedData, { timeRange: newRange });
+    }
   };
 
   // Fetch line item details for a specific invoice if needed
@@ -395,6 +465,8 @@ function App() {
           <AccountSelector 
             accounts={accounts}
             currentIndex={currentAccountIndex}
+            onSwitchAccount={handleAccountSwitch}
+            onRemoveAccount={handleRemoveAccount}
             onSwitchAccount={handleAccountSwitch}
             onRemoveAccount={handleRemoveAccount}
             onAddAccount={handleAddAccount}

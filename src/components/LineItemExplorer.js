@@ -1,35 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { formatCurrency } from '../utils/dataUtils';
-
-// Helper function to find monetary values (same as in csvUtils.js)
-const findMonetaryValue = (item) => {
-  // Check common field names first
-  if ('USD' in item && !isNaN(parseFloat(item.USD))) return parseFloat(item.USD);
-  if ('amount' in item && !isNaN(parseFloat(item.amount))) return parseFloat(item.amount);
-  if ('cost' in item && !isNaN(parseFloat(item.cost))) return parseFloat(item.cost);
-  if ('price' in item && !isNaN(parseFloat(item.price))) return parseFloat(item.price);
-  if ('charge' in item && !isNaN(parseFloat(item.charge))) return parseFloat(item.charge);
-  
-  // If no common field names are found, look through all fields for numeric values
-  // that aren't hours (since hours is its own field)
-  let highestValue = 0;
-  
-  for (const [key, value] of Object.entries(item)) {
-    // Skip non-numeric fields and hours field
-    if (key === 'hours') continue;
-    if (typeof value !== 'number' && (typeof value !== 'string' || isNaN(parseFloat(value)))) continue;
-    
-    const numValue = parseFloat(value);
-    if (numValue > 0) {
-      // Typically the highest numeric value in a CSV row (that's not hours) would be the cost
-      if (numValue > highestValue) {
-        highestValue = numValue;
-      }
-    }
-  }
-  
-  return highestValue;
-};
+import { formatCurrency, extractMonetaryValue, filterLineItemsByTimeRange } from '../utils/dataUtils';
 
 export const LineItemExplorer = ({ 
   detailedLineItems,
@@ -54,14 +24,18 @@ export const LineItemExplorer = ({
       return;
     }
 
-    console.log(`Filtering line items for category: ${selectedCategory}`);
+    console.log(`Filtering line items for product/category: ${selectedCategory}`);
     console.log(`Total line items before filtering: ${detailedLineItems.length}`);
 
+    // Apply time range filter first
+    const timeFilteredItems = filterLineItemsByTimeRange(detailedLineItems, timeRange);
+    console.log(`Items after time range filtering: ${timeFilteredItems.length}`);
+    
     // Find the monetary field if we don't have it yet
-    if (detailedLineItems.length > 0 && sortField === 'amount') {
+    if (timeFilteredItems.length > 0 && sortField === 'amount') {
       // Find a sample item that has a monetary value
-      for (const item of detailedLineItems) {
-        const monetaryValue = findMonetaryValue(item);
+      for (const item of timeFilteredItems) {
+        const monetaryValue = extractMonetaryValue(item);
         if (monetaryValue > 0) {
           // Look for which field contains this value
           for (const [key, value] of Object.entries(item)) {
@@ -77,44 +51,74 @@ export const LineItemExplorer = ({
       }
     }
 
-    // Filter items by selected category - using actual CSV field names
-    let items = detailedLineItems.filter(item => {
-      // Check multiple fields for the category match
-      const itemCategory = item.category || '';
+    // Improved filtering logic for products
+    let items = timeFilteredItems.filter(item => {
+      // Get values from multiple potential fields
       const itemProduct = item.product || '';
+      const itemCategory = item.category || '';
+      const itemName = item.name || '';
       const itemDescription = item.description || '';
       const itemGroupDescription = item.group_description || '';
       
-      // Try exact match first
-      if (itemCategory === selectedCategory) return true;
+      // First try exact match (which is preferred for products)
       if (itemProduct === selectedCategory) return true;
+      if (itemCategory === selectedCategory) return true;
+      if (itemName === selectedCategory) return true;
       if (itemDescription === selectedCategory) return true;
       if (itemGroupDescription === selectedCategory) return true;
       
-      // Try partial match as fallback
-      return (
-        itemCategory.includes(selectedCategory) || 
-        selectedCategory.includes(itemCategory) ||
-        itemProduct.includes(selectedCategory) ||
-        selectedCategory.includes(itemProduct) ||
-        itemDescription.includes(selectedCategory) ||
-        itemGroupDescription.includes(selectedCategory)
-      );
+      // If no exact match, try more precise matching for products
+      // This prioritizes the product field which is what we want when clicking on product bars
+      if (itemProduct && (
+        itemProduct.includes(selectedCategory) || 
+        selectedCategory.includes(itemProduct)
+      )) {
+        return true;
+      }
+      
+      // Only use partial matches for other fields if necessary
+      // This avoids overly broad matches
+      if (itemCategory && itemCategory.includes(selectedCategory)) return true;
+      if (itemName && itemName.includes(selectedCategory)) return true;
+      if (itemDescription && itemDescription.includes(selectedCategory)) return true;
+      if (itemGroupDescription && itemGroupDescription.includes(selectedCategory)) return true;
+      
+      return false;
     });
 
     console.log(`Items after category filtering: ${items.length}`);
+    
+    // Log a sample item to understand what's matching
+    if (items.length > 0) {
+      console.log("Sample matching item:", items[0]);
+      
+      // Check which field matched
+      const matchedOn = 
+        items[0].product === selectedCategory ? "product (exact)" :
+        items[0].category === selectedCategory ? "category (exact)" :
+        items[0].name === selectedCategory ? "name (exact)" :
+        items[0].description === selectedCategory ? "description (exact)" :
+        items[0].group_description === selectedCategory ? "group_description (exact)" :
+        items[0].product && items[0].product.includes(selectedCategory) ? "product (partial)" :
+        items[0].category && items[0].category.includes(selectedCategory) ? "category (partial)" :
+        items[0].name && items[0].name.includes(selectedCategory) ? "name (partial)" :
+        items[0].description && items[0].description.includes(selectedCategory) ? "description (partial)" :
+        items[0].group_description && items[0].group_description.includes(selectedCategory) ? "group_description (partial)" :
+        "unknown";
+        
+      console.log("Matched on field:", matchedOn);
+    }
 
     // Apply search filter if provided
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
       items = items.filter(item => {
-        return (
-          (item.description && item.description.toLowerCase().includes(searchLower)) ||
-          (item.project_name && item.project_name.toLowerCase().includes(searchLower)) ||
-          (item.product && item.product.toLowerCase().includes(searchLower)) ||
-          (item.category && item.category.toLowerCase().includes(searchLower)) ||
-          (item.group_description && item.group_description.toLowerCase().includes(searchLower))
-        );
+        return Object.entries(item).some(([key, value]) => {
+          // Skip certain fields
+          if (key === 'invoice_uuid' || key === 'invoice_amount') return false;
+          // Check if value contains search term
+          return String(value).toLowerCase().includes(searchLower);
+        });
       });
     }
 
@@ -122,7 +126,7 @@ export const LineItemExplorer = ({
     items = sortData(items, sortField, sortDirection);
 
     // Calculate total
-    const total = items.reduce((sum, item) => sum + findMonetaryValue(item), 0);
+    const total = items.reduce((sum, item) => sum + extractMonetaryValue(item), 0);
     setTotalAmount(total);
     
     // Group data if needed
@@ -134,7 +138,7 @@ export const LineItemExplorer = ({
     }
 
     setFilteredItems(items);
-  }, [detailedLineItems, selectedCategory, searchTerm, sortField, sortDirection, groupBy]);
+  }, [detailedLineItems, selectedCategory, searchTerm, sortField, sortDirection, groupBy, timeRange]);
 
   // Sort data by field
   const sortData = (data, field, direction) => {
@@ -142,8 +146,8 @@ export const LineItemExplorer = ({
       let valueA, valueB;
       
       if (field === 'amount' || field === 'USD' || field === monetaryField) {
-        valueA = findMonetaryValue(a);
-        valueB = findMonetaryValue(b);
+        valueA = extractMonetaryValue(a);
+        valueB = extractMonetaryValue(b);
       } else if (field === 'hours') {
         valueA = parseFloat(a.hours) || 0;
         valueB = parseFloat(b.hours) || 0;
@@ -204,7 +208,7 @@ export const LineItemExplorer = ({
       }
       
       grouped[groupValue].items.push(item);
-      grouped[groupValue].totalAmount += findMonetaryValue(item);
+      grouped[groupValue].totalAmount += extractMonetaryValue(item);
     });
     
     return grouped;
@@ -257,7 +261,7 @@ export const LineItemExplorer = ({
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${selectedCategory.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_details.csv`;
+    link.download = `${selectedCategory.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_details_${timeRange}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -310,6 +314,10 @@ export const LineItemExplorer = ({
         </select>
       </div>
       
+      <div style={{ fontSize: '14px', marginBottom: '15px', color: '#6b7280' }}>
+        Showing data for {timeRange === 'all' ? 'all time' : `the last ${timeRange}`}
+      </div>
+      
       {/* Data display - grouped or table */}
       {groupedData ? (
         <div className="grouped-data">
@@ -353,7 +361,7 @@ export const LineItemExplorer = ({
                           <td>{item.description || 'No description'}</td>
                           <td>{item.product || 'N/A'}</td>
                           <td>{item.hours || 'N/A'}</td>
-                          <td style={{ textAlign: 'right' }}>{formatCurrency(findMonetaryValue(item))}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(extractMonetaryValue(item))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -392,9 +400,9 @@ export const LineItemExplorer = ({
                     <div style={{ marginTop: '10px', fontSize: '13px', color: '#666' }}>
                       This could be because:
                       <ul style={{ textAlign: 'left', marginTop: '5px' }}>
-                        <li>The category name doesn't exactly match the line items</li>
-                        <li>No detailed data is available for this category</li>
-                        <li>Try using a different search term</li>
+                        <li>The product/category name doesn't match any line items</li>
+                        <li>No data exists for this product in the selected time range</li>
+                        <li>Try using a different search term or time range</li>
                       </ul>
                     </div>
                   </td>
@@ -406,7 +414,7 @@ export const LineItemExplorer = ({
                     <td>{item.product || 'N/A'}</td>
                     <td>{item.project_name || 'Unassigned'}</td>
                     <td>{item.hours || 'N/A'}</td>
-                    <td style={{ textAlign: 'right' }}>{formatCurrency(findMonetaryValue(item))}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCurrency(extractMonetaryValue(item))}</td>
                   </tr>
                 ))
               )}

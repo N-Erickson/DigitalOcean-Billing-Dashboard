@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
-import { formatCurrency } from '../../utils/dataUtils';
+import { formatCurrency, extractMonetaryValue } from '../../utils/dataUtils';
 
 export const DetailedLineItemsChart = ({ 
   detailedLineItems,
   timeRange,
-  onCategoryClick
+  onCategoryClick,
+  accountName
 }) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
@@ -15,40 +16,55 @@ export const DetailedLineItemsChart = ({
     colors: []
   });
   const [displayCount, setDisplayCount] = useState(20); // Default display count
+  const [totalItemCount, setTotalItemCount] = useState(0);
 
   // Process data for the chart
   useEffect(() => {
     if (!detailedLineItems || detailedLineItems.length === 0) {
       setChartData({ labels: [], values: [], colors: [] });
+      setTotalItemCount(0);
       return;
     }
 
     console.log("Processing detailed line items for chart visualization");
+    console.log("Sample items:", detailedLineItems.slice(0, 3));
     
-    // Group items by category
-    const categorySpend = {};
+    // Group items by product (prioritize product field over category)
+    const productSpend = {};
+    let validItems = 0;
     
     detailedLineItems.forEach(item => {
-      // Determine the category based on the exact field names from the CSV
-      const category = item.category || item.name || item.description || 'Unknown';
-      const amount = parseFloat(item.amount) || 0;
+      // Prioritize product field for more detailed breakdown
+      const product = item.product || 
+                    item.name || 
+                    item.category || 
+                    item.group_description || 
+                    item.description || 
+                    'Unknown';
+      
+      // Extract monetary value using the shared utility function
+      const amount = extractMonetaryValue(item);
       
       if (amount <= 0) return; // Skip zero or negative values
       
-      // Add to category spending
-      categorySpend[category] = (categorySpend[category] || 0) + amount;
+      // Add to product spending
+      productSpend[product] = (productSpend[product] || 0) + amount;
+      validItems++;
     });
     
-    // Sort categories by amount (descending)
-    const sortedCategories = Object.entries(categorySpend)
+    setTotalItemCount(validItems);
+    
+    // Sort products by amount (descending)
+    const sortedProducts = Object.entries(productSpend)
       .sort((a, b) => b[1] - a[1]);
     
-    const labels = sortedCategories.map(([category]) => category);
-    const values = sortedCategories.map(([, amount]) => amount);
+    const labels = sortedProducts.map(([product]) => product);
+    const values = sortedProducts.map(([, amount]) => amount);
     
-    console.log(`Found ${labels.length} categories with total spend:`, categorySpend);
+    console.log(`Found ${labels.length} products with total spend:`, 
+      Object.entries(productSpend).reduce((sum, [_, val]) => sum + val, 0));
     
-    // Generate colors for each category - repeating if needed
+    // Generate colors for each product - repeating if needed
     const baseColors = [
       'rgba(59, 130, 246, 0.8)', // blue
       'rgba(16, 185, 129, 0.8)', // green
@@ -62,7 +78,7 @@ export const DetailedLineItemsChart = ({
       'rgba(167, 139, 250, 0.8)', // light purple
     ];
     
-    // Repeat the colors as needed to cover all categories
+    // Repeat the colors as needed to cover all products
     const colors = [];
     for (let i = 0; i < labels.length; i++) {
       colors.push(baseColors[i % baseColors.length]);
@@ -92,10 +108,12 @@ export const DetailedLineItemsChart = ({
       data: { 
         labels: displayLabels, 
         datasets: [{ 
-          label: 'Line Item Cost', 
+          label: 'Product Cost', 
           data: displayValues, 
           backgroundColor: displayColors, 
-          borderWidth: 1 
+          borderWidth: 1,
+          // Add minimum bar length to ensure all bars are clickable
+          minBarLength: 15
         }] 
       },
       options: {
@@ -113,7 +131,7 @@ export const DetailedLineItemsChart = ({
           },
           title: {
             display: true,
-            text: `Showing ${displayLabels.length} of ${chartData.labels.length} categories`,
+            text: `Showing ${displayLabels.length} of ${chartData.labels.length} products for ${timeRange === 'all' ? 'all time' : `last ${timeRange}`}`,
             font: {
               size: 16
             }
@@ -125,8 +143,8 @@ export const DetailedLineItemsChart = ({
         onClick: (event, elements) => {
           if (elements && elements.length > 0) {
             const index = elements[0].index;
-            const category = displayLabels[index];
-            onCategoryClick(category);
+            const product = displayLabels[index];
+            onCategoryClick(product);
           }
         },
         scales: {
@@ -154,7 +172,7 @@ export const DetailedLineItemsChart = ({
         chartInstance.current.destroy();
       }
     };
-  }, [chartData, displayCount, onCategoryClick]);
+  }, [chartData, displayCount, onCategoryClick, timeRange]);
 
   // Function to load more items
   const loadMore = () => {
@@ -170,10 +188,18 @@ export const DetailedLineItemsChart = ({
   if (chartData.labels.length === 0) {
     return (
       <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p>No line item data available. Make sure you've loaded detailed data.</p>
+        <p>No product data available for {timeRange === 'all' ? 'all time' : `the last ${timeRange}`}. Make sure you've loaded detailed data.</p>
       </div>
     );
   }
+
+  // Function to handle category selection from dropdown
+  const handleSelectCategory = (e) => {
+    const selectedValue = e.target.value;
+    if (selectedValue) {
+      onCategoryClick(selectedValue);
+    }
+  };
 
   return (
     <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -188,41 +214,25 @@ export const DetailedLineItemsChart = ({
           color: '#6b7280',
           fontStyle: 'italic'
         }}>
-          Click on any category to see detailed line items.
+          Click on any product to see detailed line items.
         </span>
         
         <div>
           <span style={{ fontSize: '14px', marginRight: '10px' }}>
-            Showing {Math.min(displayCount, chartData.labels.length)} of {chartData.labels.length} items
+            Showing {Math.min(displayCount, chartData.labels.length)} of {chartData.labels.length} products 
+            (from {totalItemCount} line items)
           </span>
           {displayCount < chartData.labels.length && (
             <>
               <button 
                 onClick={loadMore} 
-                style={{ 
-                  marginRight: '5px',
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  backgroundColor: '#e5e7eb',
-                  color: '#374151',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer'
-                }}
+                className="load-more-btn"
               >
                 Load More
               </button>
               <button 
                 onClick={showAll} 
-                style={{ 
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  backgroundColor: '#e5e7eb',
-                  color: '#374151',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer'
-                }}
+                className="show-all-btn"
               >
                 Show All
               </button>
@@ -235,6 +245,68 @@ export const DetailedLineItemsChart = ({
         <div style={{ height: `${Math.max(400, 30 * displayCount)}px` }}>
           <canvas ref={chartRef} style={{ cursor: 'pointer' }} className="clickable-chart" />
         </div>
+      </div>
+      
+      {/* Product Selector Section */}
+      <div style={{ marginTop: '15px', textAlign: 'center' }}>
+        <button
+          onClick={() => {
+            // Create a simple select element
+            const selectContainer = document.getElementById('product-selector-container');
+            
+            // If the select is already shown, hide it
+            if (selectContainer.childNodes.length > 0) {
+              selectContainer.innerHTML = '';
+              return;
+            }
+            
+            const select = document.createElement('select');
+            select.style.width = '80%';
+            select.style.padding = '10px';
+            select.style.margin = '10px auto';
+            select.style.display = 'block';
+            
+            // Add a default option
+            const defaultOption = document.createElement('option');
+            defaultOption.text = '-- Select a product to view detailed items --';
+            defaultOption.value = '';
+            select.appendChild(defaultOption);
+            
+            // Get all product labels and sort alphabetically
+            const allProducts = [...chartData.labels].sort();
+            
+            // Add all products as options
+            allProducts.forEach(product => {
+              const option = document.createElement('option');
+              option.text = product;
+              option.value = product;
+              select.appendChild(option);
+            });
+            
+            // Handle selection change
+            select.addEventListener('change', (e) => {
+              if (e.target.value) {
+                onCategoryClick(e.target.value);
+              }
+            });
+            
+            selectContainer.innerHTML = '';
+            selectContainer.appendChild(select);
+          }}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Browse All Products
+        </button>
+        
+        {/* Container for the product selector */}
+        <div id="product-selector-container" style={{ marginTop: '10px' }}></div>
       </div>
     </div>
   );

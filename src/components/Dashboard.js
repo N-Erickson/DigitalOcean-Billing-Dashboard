@@ -7,7 +7,7 @@ import { ProductChart } from './charts/ProductChart';
 import { DetailedLineItemsChart } from './charts/DetailedLineItemsChart';
 import { LineItemExplorer } from './LineItemExplorer';
 import { InvoiceTable } from './InvoiceTable';
-import { formatCurrency } from '../utils/dataUtils';
+import { formatCurrency, filterLineItemsByTimeRange } from '../utils/dataUtils';
 
 export const Dashboard = ({ 
   accountName,
@@ -29,6 +29,18 @@ export const Dashboard = ({
 }) => {
   const [showDataNotice, setShowDataNotice] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [filteredLineItems, setFilteredLineItems] = useState([]);
+  
+  // Effect to filter line items by time range
+  useEffect(() => {
+    if (detailedLineItems && detailedLineItems.length > 0) {
+      const filtered = filterLineItemsByTimeRange(detailedLineItems, timeRange);
+      console.log(`Filtered line items by time range: ${filtered.length} of ${detailedLineItems.length} items`);
+      setFilteredLineItems(filtered);
+    } else {
+      setFilteredLineItems([]);
+    }
+  }, [detailedLineItems, timeRange]);
   
   useEffect(() => {
     // Log details about the processed data for debugging
@@ -55,19 +67,19 @@ export const Dashboard = ({
 
   // Download full billing data as CSV
   const downloadBillingCSV = () => {
-    if (!detailedLineItems || detailedLineItems.length === 0) {
+    if (!filteredLineItems || filteredLineItems.length === 0) {
       alert('No data available to download.');
       return;
     }
     
     // Get all columns from the first item
-    const firstItem = detailedLineItems[0];
+    const firstItem = filteredLineItems[0];
     const headers = Object.keys(firstItem);
     
     // Create CSV content
     const csvRows = [headers.join(',')];
     
-    detailedLineItems.forEach(item => {
+    filteredLineItems.forEach(item => {
       const row = headers.map(field => {
         const value = item[field];
         // Format value for CSV (handle commas, quotes, etc.)
@@ -83,7 +95,7 @@ export const Dashboard = ({
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${accountName.replace(/\s+/g, '_').toLowerCase()}_billing_${new Date().toISOString().slice(0,10)}.csv`;
+    link.download = `${accountName.replace(/\s+/g, '_').toLowerCase()}_billing_${timeRange}_${new Date().toISOString().slice(0,10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -132,7 +144,7 @@ export const Dashboard = ({
           <button onClick={onRefresh} disabled={isLoading}>
             Refresh Data
           </button>
-          <button onClick={downloadBillingCSV} disabled={isLoading || detailedLineItems.length === 0}>
+          <button onClick={downloadBillingCSV} disabled={isLoading || filteredLineItems.length === 0}>
             Download CSV
           </button>
           <button onClick={onClearCache} disabled={isLoading || !cacheStatus.isCached}>
@@ -161,6 +173,11 @@ export const Dashboard = ({
 
       {!isLoading && processedData && (
         <>
+          <div className="time-range-info" style={{ marginBottom: '15px', fontSize: '14px', color: '#666' }}>
+            Showing data for {timeRange === 'all' ? 'all time' : `last ${timeRange}`}
+            ({filteredLineItems.length} of {detailedLineItems.length} line items)
+          </div>
+
           <SummaryCards summary={processedData.summary} accountName={accountName} />
 
           <div className="chart-container">
@@ -211,7 +228,7 @@ export const Dashboard = ({
                 />
               ) : (
                 <DetailedLineItemsChart 
-                  detailedLineItems={detailedLineItems}
+                  detailedLineItems={filteredLineItems} // Use filtered line items here
                   timeRange={timeRange}
                   onCategoryClick={handleCategoryClick}
                   accountName={accountName}

@@ -1,6 +1,6 @@
 // CSV processing utilities for DigitalOcean FinOps Dashboard
 import Papa from 'papaparse';
-import { formatCurrency } from './dataUtils';
+import { formatCurrency, extractMonetaryValue, filterLineItemsByTimeRange } from './dataUtils';
 
 // Parse CSV text into structured data
 export const parseCSV = (csvText) => {
@@ -165,50 +165,8 @@ export const fetchInvoicesList = async (token) => {
   }
 };
 
-// Try to find the most likely monetary field in an item
-const findMonetaryValue = (item) => {
-  // For USD field, clean and handle the string values
-  if ('USD' in item) {
-    // If it's a string like "$18.00", clean it up
-    if (typeof item.USD === 'string') {
-      // Remove $ and any other non-numeric characters except decimal point
-      const cleaned = item.USD.replace(/[^\d.-]/g, '');
-      const value = parseFloat(cleaned);
-      if (!isNaN(value)) return value;
-    } else if (typeof item.USD === 'number') {
-      return item.USD;
-    }
-  }
-  
-  // Check other common field names
-  if ('amount' in item && !isNaN(parseFloat(item.amount))) return parseFloat(item.amount);
-  if ('cost' in item && !isNaN(parseFloat(item.cost))) return parseFloat(item.cost);
-  if ('price' in item && !isNaN(parseFloat(item.price))) return parseFloat(item.price);
-  
-  // IMPORTANT: Do NOT use invoice_amount as a fallback
-  // This is the entire invoice amount, not the line item amount!
-  
-  // Look for other fields that might contain monetary values
-  for (const [key, value] of Object.entries(item)) {
-    // Skip non-numeric fields, hours field, and invoice amount
-    if (key === 'hours' || key === 'invoice_amount') continue;
-    
-    // Handle string values that might have currency symbols
-    if (typeof value === 'string' && value.includes('$')) {
-      const cleaned = value.replace(/[^\d.-]/g, '');
-      const numValue = parseFloat(cleaned);
-      if (!isNaN(numValue) && numValue > 0) {
-        return numValue;
-      }
-    }
-  }
-  
-  // If nothing else is found, return 0
-  return 0;
-};
-
-// Process CSV data for visualizations
-export const processCSVDataForVisualizations = (lineItems) => {
+// Process CSV data for visualizations with optional time range filter
+export const processCSVDataForVisualizations = (lineItems, timeRange = null) => {
   console.log("Processing visualization data from", lineItems.length, "items");
   
   if (lineItems.length === 0) {
@@ -227,6 +185,13 @@ export const processCSVDataForVisualizations = (lineItems) => {
     }
   }
   
+  // Apply time range filter if provided
+  let itemsToProcess = lineItems;
+  if (timeRange) {
+    itemsToProcess = filterLineItemsByTimeRange(lineItems, timeRange);
+    console.log(`Applied time range filter: ${timeRange}. Items reduced from ${lineItems.length} to ${itemsToProcess.length}`);
+  }
+  
   // Initialize data structures
   const monthlySpend = {};
   const categorySpend = {};
@@ -236,9 +201,9 @@ export const processCSVDataForVisualizations = (lineItems) => {
   let validItemCount = 0;
   
   // Process each line item
-  lineItems.forEach((item, index) => {
-    // Find the monetary value for this item
-    let amount = findMonetaryValue(item);
+  itemsToProcess.forEach((item, index) => {
+    // Find the monetary value for this item using the shared utility function
+    let amount = extractMonetaryValue(item);
     
     // Log details for the first few items to debug
     if (index < 5) {
@@ -265,8 +230,8 @@ export const processCSVDataForVisualizations = (lineItems) => {
       monthlySpend[month] = (monthlySpend[month] || 0) + amount;
     }
     
-    // For category breakdown - use the category field
-    const category = item.category || item.product || 'Unknown';
+    // For category breakdown - try multiple fields
+    const category = item.category || item.name || item.product || item.description || 'Unknown';
     if (category) {
       categorySpend[category] = (categorySpend[category] || 0) + amount;
     }
@@ -275,8 +240,8 @@ export const processCSVDataForVisualizations = (lineItems) => {
     const project = item.project_name || 'Unassigned';
     projectSpend[project] = (projectSpend[project] || 0) + amount;
     
-    // For product breakdown - use product field
-    const product = item.product || 'Unknown';
+    // For product breakdown - use product field or fallback to other identifiers
+    const product = item.product || item.name || item.type || 'Unknown';
     productSpend[product] = (productSpend[product] || 0) + amount;
     
     // Add to total
@@ -297,7 +262,7 @@ export const processCSVDataForVisualizations = (lineItems) => {
     
     // Fallback: if no valid items were found, try using invoice totals instead
     console.log("Using invoice totals as fallback...");
-    return processInvoiceTotals(lineItems);
+    return processInvoiceTotals(itemsToProcess);
   }
   
   // Sort monthly data by date for time-series display
@@ -349,169 +314,169 @@ const processInvoiceTotals = (lineItems) => {
     // Skip if we've already processed this invoice
     if (invoices.has(item.invoice_uuid)) return;
     
-    // For invoice amounts, make sure to parse correctly if it's a string
-    let amount = 0;
-    if (item.invoice_amount) {
-      if (typeof item.invoice_amount === 'string') {
-        // Remove currency symbols if present
-        const cleaned = item.invoice_amount.replace(/[^\d.-]/g, '');
-        amount = parseFloat(cleaned);
-      } else if (typeof item.invoice_amount === 'number') {
-        amount = item.invoice_amount;
-      }
-    }
-    
-    if (amount <= 0) return;
-    
-    invoices.add(item.invoice_uuid);
-    invoiceAmounts[item.invoice_period] = (invoiceAmounts[item.invoice_period] || 0) + amount;
-    totalAmount += amount;
-    
-    // Add to single categories
-    projectSpend['All Projects'] += amount;
-    categorySpend['All Services'] += amount;
-    productSpend['All Products'] += amount;
-  });
-  
-  // Sort months
-  const monthKeys = Object.keys(invoiceAmounts);
-  const sortedMonths = monthKeys.sort((a, b) => {
-    const dateA = parseMonthPeriod(a);
-    const dateB = parseMonthPeriod(b);
-    return dateA - dateB;
-  });
-  
-  const monthlyLabels = sortedMonths;
-  const monthlyValues = sortedMonths.map(month => invoiceAmounts[month]);
-  
-  console.log("Using invoice totals: ", totalAmount);
-  console.log("Monthly data from invoice totals:", monthlyLabels, monthlyValues);
-  
-  // If still no data, return empty result
-  if (totalAmount === 0) {
-    return createEmptyVisualizationData();
+// For invoice amounts, make sure to parse correctly if it's a string
+let amount = 0;
+if (item.invoice_amount) {
+  if (typeof item.invoice_amount === 'string') {
+    // Remove currency symbols if present
+    const cleaned = item.invoice_amount.replace(/[^\d.-]/g, '');
+    amount = parseFloat(cleaned);
+  } else if (typeof item.invoice_amount === 'number') {
+    amount = item.invoice_amount;
   }
-  
-  // Calculate trend and forecast
-  const { trendText, forecastAmount, confidenceText } = 
-    calculateTrendAndForecast(monthlyLabels, monthlyValues, invoices.size);
-  
-  return {
-    monthlyData: { labels: monthlyLabels, values: monthlyValues },
-    categoryData: categorySpend,
-    projectData: projectSpend,
-    productData: productSpend,
-    summary: {
-      totalAmount,
-      invoiceCount: invoices.size,
-      totalItems: lineItems.length,
-      trendText,
-      forecastAmount,
-      confidenceText
-    }
-  };
+}
+
+if (amount <= 0) return;
+
+invoices.add(item.invoice_uuid);
+invoiceAmounts[item.invoice_period] = (invoiceAmounts[item.invoice_period] || 0) + amount;
+totalAmount += amount;
+
+// Add to single categories
+projectSpend['All Projects'] += amount;
+categorySpend['All Services'] += amount;
+productSpend['All Products'] += amount;
+});
+
+// Sort months
+const monthKeys = Object.keys(invoiceAmounts);
+const sortedMonths = monthKeys.sort((a, b) => {
+const dateA = parseMonthPeriod(a);
+const dateB = parseMonthPeriod(b);
+return dateA - dateB;
+});
+
+const monthlyLabels = sortedMonths;
+const monthlyValues = sortedMonths.map(month => invoiceAmounts[month]);
+
+console.log("Using invoice totals: ", totalAmount);
+console.log("Monthly data from invoice totals:", monthlyLabels, monthlyValues);
+
+// If still no data, return empty result
+if (totalAmount === 0) {
+return createEmptyVisualizationData();
+}
+
+// Calculate trend and forecast
+const { trendText, forecastAmount, confidenceText } = 
+calculateTrendAndForecast(monthlyLabels, monthlyValues, invoices.size);
+
+return {
+monthlyData: { labels: monthlyLabels, values: monthlyValues },
+categoryData: categorySpend,
+projectData: projectSpend,
+productData: productSpend,
+summary: {
+  totalAmount,
+  invoiceCount: invoices.size,
+  totalItems: lineItems.length,
+  trendText,
+  forecastAmount,
+  confidenceText
+}
+};
 };
 
 // Helper function to parse month period strings into comparable dates
 const parseMonthPeriod = (periodStr) => {
-  if (!periodStr) return new Date(0); // Default for empty strings
-  
-  // Check if it's already in YYYY-MM format
-  if (/^\d{4}-\d{2}$/.test(periodStr)) {
-    return new Date(`${periodStr}-01`);
+if (!periodStr) return new Date(0); // Default for empty strings
+
+// Check if it's already in YYYY-MM format
+if (/^\d{4}-\d{2}$/.test(periodStr)) {
+return new Date(`${periodStr}-01`);
+}
+
+// Try to parse various date formats
+try {
+// For "Month YYYY" format (e.g., "January 2023")
+const monthYearMatch = periodStr.match(/([A-Za-z]+)\s+(\d{4})/);
+if (monthYearMatch) {
+  const monthNames = ["january", "february", "march", "april", "may", "june", 
+                     "july", "august", "september", "october", "november", "december"];
+  const month = monthNames.indexOf(monthYearMatch[1].toLowerCase());
+  const year = parseInt(monthYearMatch[2]);
+  if (month !== -1 && !isNaN(year)) {
+    return new Date(year, month, 1);
   }
-  
-  // Try to parse various date formats
-  try {
-    // For "Month YYYY" format (e.g., "January 2023")
-    const monthYearMatch = periodStr.match(/([A-Za-z]+)\s+(\d{4})/);
-    if (monthYearMatch) {
-      const monthNames = ["january", "february", "march", "april", "may", "june", 
-                         "july", "august", "september", "october", "november", "december"];
-      const month = monthNames.indexOf(monthYearMatch[1].toLowerCase());
-      const year = parseInt(monthYearMatch[2]);
-      if (month !== -1 && !isNaN(year)) {
-        return new Date(year, month, 1);
-      }
-    }
-    
-    // For full date strings
-    const date = new Date(periodStr);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
-  } catch (e) {
-    console.warn(`Failed to parse period string: ${periodStr}`);
-  }
-  
-  // Return original string converted to date (may be invalid)
-  return new Date(periodStr);
+}
+
+// For full date strings
+const date = new Date(periodStr);
+if (!isNaN(date.getTime())) {
+  return date;
+}
+} catch (e) {
+console.warn(`Failed to parse period string: ${periodStr}`);
+}
+
+// Return original string converted to date (may be invalid)
+return new Date(periodStr);
 };
 
 // Create empty data structures when no data is available
 const createEmptyVisualizationData = () => {
-  return {
-    monthlyData: { labels: [], values: [] },
-    categoryData: {'No Data': 0},
-    projectData: {'No Data': 0},
-    productData: {'No Data': 0},
-    summary: {
-      totalAmount: 0,
-      invoiceCount: 0,
-      totalItems: 0,
-      trendText: 'N/A',
-      forecastAmount: 0,
-      confidenceText: 'No data available'
-    }
-  };
+return {
+monthlyData: { labels: [], values: [] },
+categoryData: {'No Data': 0},
+projectData: {'No Data': 0},
+productData: {'No Data': 0},
+summary: {
+  totalAmount: 0,
+  invoiceCount: 0,
+  totalItems: 0,
+  trendText: 'N/A',
+  forecastAmount: 0,
+  confidenceText: 'No data available'
+}
+};
 };
 
 // Calculate trend and forecast from monthly data
 const calculateTrendAndForecast = (labels, values, itemCount) => {
-  if (!labels || !values || labels.length < 2) {
-    return {
-      trendText: 'N/A',
-      forecastAmount: 0,
-      confidenceText: `Insufficient data (${itemCount} items)`
-    };
-  }
-  
-  // Get the two most recent months
-  const lastIndex = values.length - 1;
-  const lastSpend = values[lastIndex];
-  const prevSpend = values[lastIndex - 1];
-  
-  // Calculate trend
-  let trendText = 'N/A';
-  if (prevSpend > 0) {
-    const change = lastSpend - prevSpend;
-    const percentChange = (change / prevSpend) * 100;
-    trendText = change >= 0 ? 
-      `Up ${percentChange.toFixed(1)}%` : 
-      `Down ${Math.abs(percentChange).toFixed(1)}%`;
-  }
-  
-  // Calculate forecast (simple linear projection)
-  let forecastAmount = 0;
-  let confidenceText = '';
-  
-  if (values.length >= 3) {
-    // Use last 3 months for forecast
-    const recentValues = values.slice(-3);
-    
-    // Calculate average month-to-month change
-    const avgChange = (recentValues[2] - recentValues[0]) / 2;
-    
-    // Project forward from latest
-    forecastAmount = recentValues[2] + avgChange;
-    if (forecastAmount < 0) forecastAmount = recentValues[2]; // No negative forecasts
-    
-    confidenceText = `Based on ${values.length} months of data, ±${Math.min(10, values.length * 2)}%`;
-  } else if (values.length > 0) {
-    // With limited data, just use the most recent value
-    forecastAmount = values[values.length - 1];
-    confidenceText = 'Limited historical data, high variance';
-  }
-  
-  return { trendText, forecastAmount, confidenceText };
+if (!labels || !values || labels.length < 2) {
+return {
+  trendText: 'N/A',
+  forecastAmount: 0,
+  confidenceText: `Insufficient data (${itemCount} items)`
+};
+}
+
+// Get the two most recent months
+const lastIndex = values.length - 1;
+const lastSpend = values[lastIndex];
+const prevSpend = values[lastIndex - 1];
+
+// Calculate trend
+let trendText = 'N/A';
+if (prevSpend > 0) {
+const change = lastSpend - prevSpend;
+const percentChange = (change / prevSpend) * 100;
+trendText = change >= 0 ? 
+  `Up ${percentChange.toFixed(1)}%` : 
+  `Down ${Math.abs(percentChange).toFixed(1)}%`;
+}
+
+// Calculate forecast (simple linear projection)
+let forecastAmount = 0;
+let confidenceText = '';
+
+if (values.length >= 3) {
+// Use last 3 months for forecast
+const recentValues = values.slice(-3);
+
+// Calculate average month-to-month change
+const avgChange = (recentValues[2] - recentValues[0]) / 2;
+
+// Project forward from latest
+forecastAmount = recentValues[2] + avgChange;
+if (forecastAmount < 0) forecastAmount = recentValues[2]; // No negative forecasts
+
+confidenceText = `Based on ${values.length} months of data, ±${Math.min(10, values.length * 2)}%`;
+} else if (values.length > 0) {
+// With limited data, just use the most recent value
+forecastAmount = values[values.length - 1];
+confidenceText = 'Limited historical data, high variance';
+}
+
+return { trendText, forecastAmount, confidenceText };
 };
