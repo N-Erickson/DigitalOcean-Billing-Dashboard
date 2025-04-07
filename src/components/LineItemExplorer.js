@@ -1,6 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { formatCurrency } from '../utils/dataUtils';
 
+// Helper function to find monetary values (same as in csvUtils.js)
+const findMonetaryValue = (item) => {
+  // Check common field names first
+  if ('USD' in item && !isNaN(parseFloat(item.USD))) return parseFloat(item.USD);
+  if ('amount' in item && !isNaN(parseFloat(item.amount))) return parseFloat(item.amount);
+  if ('cost' in item && !isNaN(parseFloat(item.cost))) return parseFloat(item.cost);
+  if ('price' in item && !isNaN(parseFloat(item.price))) return parseFloat(item.price);
+  if ('charge' in item && !isNaN(parseFloat(item.charge))) return parseFloat(item.charge);
+  
+  // If no common field names are found, look through all fields for numeric values
+  // that aren't hours (since hours is its own field)
+  let highestValue = 0;
+  
+  for (const [key, value] of Object.entries(item)) {
+    // Skip non-numeric fields and hours field
+    if (key === 'hours') continue;
+    if (typeof value !== 'number' && (typeof value !== 'string' || isNaN(parseFloat(value)))) continue;
+    
+    const numValue = parseFloat(value);
+    if (numValue > 0) {
+      // Typically the highest numeric value in a CSV row (that's not hours) would be the cost
+      if (numValue > highestValue) {
+        highestValue = numValue;
+      }
+    }
+  }
+  
+  return highestValue;
+};
+
 export const LineItemExplorer = ({ 
   detailedLineItems,
   selectedCategory,
@@ -8,12 +38,13 @@ export const LineItemExplorer = ({
   timeRange
 }) => {
   const [filteredItems, setFilteredItems] = useState([]);
-  const [sortField, setSortField] = useState('USD');
+  const [sortField, setSortField] = useState('amount');
   const [sortDirection, setSortDirection] = useState('desc');
   const [groupBy, setGroupBy] = useState('none');
   const [searchTerm, setSearchTerm] = useState('');
   const [totalAmount, setTotalAmount] = useState(0);
   const [groupedData, setGroupedData] = useState(null);
+  const [monetaryField, setMonetaryField] = useState('amount'); // Will be updated based on data
 
   // Process and filter line items when data changes
   useEffect(() => {
@@ -25,6 +56,26 @@ export const LineItemExplorer = ({
 
     console.log(`Filtering line items for category: ${selectedCategory}`);
     console.log(`Total line items before filtering: ${detailedLineItems.length}`);
+
+    // Find the monetary field if we don't have it yet
+    if (detailedLineItems.length > 0 && sortField === 'amount') {
+      // Find a sample item that has a monetary value
+      for (const item of detailedLineItems) {
+        const monetaryValue = findMonetaryValue(item);
+        if (monetaryValue > 0) {
+          // Look for which field contains this value
+          for (const [key, value] of Object.entries(item)) {
+            if (parseFloat(value) === monetaryValue) {
+              console.log(`Found monetary field: ${key}`);
+              setSortField(key);
+              setMonetaryField(key);
+              break;
+            }
+          }
+          break;
+        }
+      }
+    }
 
     // Filter items by selected category - using actual CSV field names
     let items = detailedLineItems.filter(item => {
@@ -70,8 +121,8 @@ export const LineItemExplorer = ({
     // Sort data
     items = sortData(items, sortField, sortDirection);
 
-    // Calculate total using USD field
-    const total = items.reduce((sum, item) => sum + (parseFloat(item.USD) || 0), 0);
+    // Calculate total
+    const total = items.reduce((sum, item) => sum + findMonetaryValue(item), 0);
     setTotalAmount(total);
     
     // Group data if needed
@@ -90,9 +141,9 @@ export const LineItemExplorer = ({
     return [...data].sort((a, b) => {
       let valueA, valueB;
       
-      if (field === 'USD') {
-        valueA = parseFloat(a.USD) || 0;
-        valueB = parseFloat(b.USD) || 0;
+      if (field === 'amount' || field === 'USD' || field === monetaryField) {
+        valueA = findMonetaryValue(a);
+        valueB = findMonetaryValue(b);
       } else if (field === 'hours') {
         valueA = parseFloat(a.hours) || 0;
         valueB = parseFloat(b.hours) || 0;
@@ -153,7 +204,7 @@ export const LineItemExplorer = ({
       }
       
       grouped[groupValue].items.push(item);
-      grouped[groupValue].totalAmount += parseFloat(item.USD) || 0;
+      grouped[groupValue].totalAmount += findMonetaryValue(item);
     });
     
     return grouped;
@@ -291,8 +342,8 @@ export const LineItemExplorer = ({
                         <th style={{ cursor: 'pointer' }} onClick={() => handleSort('hours')}>
                           Hours{renderSortIndicator('hours')}
                         </th>
-                        <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => handleSort('USD')}>
-                          Amount{renderSortIndicator('USD')}
+                        <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => handleSort(monetaryField)}>
+                          Amount{renderSortIndicator(monetaryField)}
                         </th>
                       </tr>
                     </thead>
@@ -302,7 +353,7 @@ export const LineItemExplorer = ({
                           <td>{item.description || 'No description'}</td>
                           <td>{item.product || 'N/A'}</td>
                           <td>{item.hours || 'N/A'}</td>
-                          <td style={{ textAlign: 'right' }}>{formatCurrency(parseFloat(item.USD) || 0)}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(findMonetaryValue(item))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -328,8 +379,8 @@ export const LineItemExplorer = ({
                 <th style={{ cursor: 'pointer' }} onClick={() => handleSort('hours')}>
                   Hours{renderSortIndicator('hours')}
                 </th>
-                <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => handleSort('USD')}>
-                  Amount{renderSortIndicator('USD')}
+                <th style={{ cursor: 'pointer', textAlign: 'right' }} onClick={() => handleSort(monetaryField)}>
+                  Amount{renderSortIndicator(monetaryField)}
                 </th>
               </tr>
             </thead>
@@ -355,7 +406,7 @@ export const LineItemExplorer = ({
                     <td>{item.product || 'N/A'}</td>
                     <td>{item.project_name || 'Unassigned'}</td>
                     <td>{item.hours || 'N/A'}</td>
-                    <td style={{ textAlign: 'right' }}>{formatCurrency(parseFloat(item.USD) || 0)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCurrency(findMonetaryValue(item))}</td>
                   </tr>
                 ))
               )}

@@ -167,32 +167,44 @@ export const fetchInvoicesList = async (token) => {
 
 // Try to find the most likely monetary field in an item
 const findMonetaryValue = (item) => {
-  // Check common field names first
-  if ('USD' in item && !isNaN(parseFloat(item.USD))) return parseFloat(item.USD);
+  // For USD field, clean and handle the string values
+  if ('USD' in item) {
+    // If it's a string like "$18.00", clean it up
+    if (typeof item.USD === 'string') {
+      // Remove $ and any other non-numeric characters except decimal point
+      const cleaned = item.USD.replace(/[^\d.-]/g, '');
+      const value = parseFloat(cleaned);
+      if (!isNaN(value)) return value;
+    } else if (typeof item.USD === 'number') {
+      return item.USD;
+    }
+  }
+  
+  // Check other common field names
   if ('amount' in item && !isNaN(parseFloat(item.amount))) return parseFloat(item.amount);
   if ('cost' in item && !isNaN(parseFloat(item.cost))) return parseFloat(item.cost);
   if ('price' in item && !isNaN(parseFloat(item.price))) return parseFloat(item.price);
-  if ('charge' in item && !isNaN(parseFloat(item.charge))) return parseFloat(item.charge);
   
-  // If no common field names are found, look through all fields for numeric values
-  // that aren't hours (since hours is its own field)
-  let highestValue = 0;
+  // IMPORTANT: Do NOT use invoice_amount as a fallback
+  // This is the entire invoice amount, not the line item amount!
   
+  // Look for other fields that might contain monetary values
   for (const [key, value] of Object.entries(item)) {
-    // Skip non-numeric fields and hours field
-    if (key === 'hours') continue;
-    if (typeof value !== 'number' && (typeof value !== 'string' || isNaN(parseFloat(value)))) continue;
+    // Skip non-numeric fields, hours field, and invoice amount
+    if (key === 'hours' || key === 'invoice_amount') continue;
     
-    const numValue = parseFloat(value);
-    if (numValue > 0) {
-      // Typically the highest numeric value in a CSV row (that's not hours) would be the cost
-      if (numValue > highestValue) {
-        highestValue = numValue;
+    // Handle string values that might have currency symbols
+    if (typeof value === 'string' && value.includes('$')) {
+      const cleaned = value.replace(/[^\d.-]/g, '');
+      const numValue = parseFloat(cleaned);
+      if (!isNaN(numValue) && numValue > 0) {
+        return numValue;
       }
     }
   }
   
-  return highestValue;
+  // If nothing else is found, return 0
+  return 0;
 };
 
 // Process CSV data for visualizations
@@ -332,21 +344,33 @@ const processInvoiceTotals = (lineItems) => {
   
   // Use invoice_amount field that we added during processing
   lineItems.forEach(item => {
-    if (!item.invoice_uuid || !item.invoice_period || !item.invoice_amount) return;
+    if (!item.invoice_uuid || !item.invoice_period) return;
     
-    if (!invoiceAmounts[item.invoice_period]) {
-      const amount = parseFloat(item.invoice_amount) || 0;
-      if (amount <= 0) return;
-      
-      invoiceAmounts[item.invoice_period] = amount;
-      totalAmount += amount;
-      invoices.add(item.invoice_uuid);
-      
-      // Add to single categories
-      projectSpend['All Projects'] += amount;
-      categorySpend['All Services'] += amount;
-      productSpend['All Products'] += amount;
+    // Skip if we've already processed this invoice
+    if (invoices.has(item.invoice_uuid)) return;
+    
+    // For invoice amounts, make sure to parse correctly if it's a string
+    let amount = 0;
+    if (item.invoice_amount) {
+      if (typeof item.invoice_amount === 'string') {
+        // Remove currency symbols if present
+        const cleaned = item.invoice_amount.replace(/[^\d.-]/g, '');
+        amount = parseFloat(cleaned);
+      } else if (typeof item.invoice_amount === 'number') {
+        amount = item.invoice_amount;
+      }
     }
+    
+    if (amount <= 0) return;
+    
+    invoices.add(item.invoice_uuid);
+    invoiceAmounts[item.invoice_period] = (invoiceAmounts[item.invoice_period] || 0) + amount;
+    totalAmount += amount;
+    
+    // Add to single categories
+    projectSpend['All Projects'] += amount;
+    categorySpend['All Services'] += amount;
+    productSpend['All Products'] += amount;
   });
   
   // Sort months
