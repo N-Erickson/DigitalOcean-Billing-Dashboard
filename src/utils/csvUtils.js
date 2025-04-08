@@ -433,7 +433,43 @@ const createEmptyVisualizationData = () => {
 
 // ENHANCED: Calculate trend and forecast from monthly data with advanced methods
 const calculateTrendAndForecast = (labels, values, itemCount) => {
-  if (!labels || !values || labels.length < 2) {
+  // Handle the case where we don't have enough data
+  if (!labels || !values) {
+    return {
+      trendText: 'N/A',
+      forecastAmount: 0,
+      confidenceText: `No data available`
+    };
+  }
+  
+  // Special case: If we're looking at only the last month (timeRange = '1month')
+  // we should still make a forecast by looking at a wider range of data
+  let lastSpend = 0;
+  let prevSpend = 0;
+  let fullDataset = false;
+  
+  // Case 1: We have at least 2 months of data in the current view
+  if (values.length >= 2) {
+    const lastIndex = values.length - 1;
+    lastSpend = values[lastIndex];
+    prevSpend = values[lastIndex - 1];
+    fullDataset = true;
+  } 
+  // Case 2: We only have 1 month in view (likely because timeRange = '1month')
+  // In this case, we'll use the last month's value and make a simple projection
+  else if (values.length === 1) {
+    lastSpend = values[0];
+    
+    // Even with only one month in view, we'll attempt a forecast
+    // Set a reasonable default value (for now, just use the last month)
+    // We'll refine this in the forecast calculation
+    prevSpend = lastSpend;
+    
+    // Mark that we don't have a full dataset to calculate trend
+    fullDataset = false;
+  }
+  // Case 3: No data available at all
+  else {
     return {
       trendText: 'N/A',
       forecastAmount: 0,
@@ -441,14 +477,9 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
     };
   }
 
-  // Get the two most recent months for trend calculation
-  const lastIndex = values.length - 1;
-  const lastSpend = values[lastIndex];
-  const prevSpend = values[lastIndex - 1];
-
-  // Calculate trend (same as before)
+  // Calculate trend, but only if we have at least 2 months of data
   let trendText = 'N/A';
-  if (prevSpend > 0) {
+  if (fullDataset && prevSpend > 0) {
     const change = lastSpend - prevSpend;
     const percentChange = (change / prevSpend) * 100;
     trendText = change >= 0 ? 
@@ -460,10 +491,18 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
   let forecastAmount = 0;
   let confidenceText = '';
 
-  // Method selection based on data availability
-  if (values.length >= 12) {
+  // For timeRange = '1month' or any case with limited visible data,
+  // we'll try to make a reasonable projection using available data
+  if (!fullDataset) {
+    // Simple approach: Use the lastSpend with a slight growth factor
+    // This is a fallback when we can't do a proper trend analysis
+    forecastAmount = lastSpend * 1.05; // Assume 5% growth
+    confidenceText = 'Based on limited visible data, high variance possible';
+  }
+  // Normal forecasting path with multiple methods based on data availability
+  else if (values.length >= 12) {
     // Method 1: Use year-over-year seasonality if we have at least 12 months of data
-    const sameMonthLastYear = values[lastIndex - 11];
+    const sameMonthLastYear = values[values.length - 12];
     const lastYearGrowth = lastSpend / sameMonthLastYear;
     
     // Blend of YoY growth and recent trend
@@ -479,7 +518,7 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
     
     // Apply weights to available months (up to last 6)
     for (let i = 0; i < Math.min(6, values.length); i++) {
-      weightedSum += values[lastIndex - i] * weights[i];
+      weightedSum += values[values.length - 1 - i] * weights[i];
       weightSum += weights[i];
     }
     
@@ -500,8 +539,8 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
     
     for (let i = 0; i < n; i++) {
       sumX += i;
-      sumY += values[lastIndex - (n - 1) + i];
-      sumXY += i * values[lastIndex - (n - 1) + i];
+      sumY += values[i];
+      sumXY += i * values[i];
       sumX2 += i * i;
     }
     
@@ -518,7 +557,7 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
     
     confidenceText = `Based on trend analysis of last ${n} months, ±${20 - n * 2}%`;
   } 
-  else {
+  else if (values.length >= 2) {
     // Method 4: For 2 months, simple projection with dampening
     const growthRate = lastSpend / prevSpend;
     // Dampen the growth rate to avoid extreme projections
@@ -534,7 +573,7 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
 
   // Add anomaly detection - if last month appears to be an outlier
   if (values.length >= 4) {
-    const threeMonthAvg = (values[lastIndex - 1] + values[lastIndex - 2] + values[lastIndex - 3]) / 3;
+    const threeMonthAvg = (values[values.length - 2] + values[values.length - 3] + values[values.length - 4]) / 3;
     const deviation = Math.abs(lastSpend - threeMonthAvg) / threeMonthAvg;
     
     if (deviation > 0.3) { // If last month deviates by more than 30% from previous 3-month average

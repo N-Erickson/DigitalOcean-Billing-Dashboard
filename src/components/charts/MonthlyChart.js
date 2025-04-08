@@ -45,47 +45,97 @@ export const MonthlyChart = ({ data, showForecast = true, forecastAmount = null 
     };
     
     // Add forecast point if enabled
-    if (showForecast && data.labels.length >= 2) {
-      // Use provided forecast amount or get it from the last point
-      const forecast = forecastAmount || (data.values[data.values.length - 1] * 1.1);
-      chartData = addForecastToMonthlyChart(chartData, forecast);
-      
-      // Add annotation plugin config to make forecast point more visible
-      const forecastIndex = chartData.labels.length - 1;
-      
-      // Modified options for forecast styling
-      chartData.datasets[0].pointBackgroundColor = chartData.datasets[0].data.map((_, i) => 
-        i === forecastIndex ? 'rgba(255, 99, 132, 1)' : 'rgba(59, 130, 246, 1)'
-      );
-      
-      chartData.datasets[0].pointRadius = chartData.datasets[0].data.map((_, i) => 
-        i === forecastIndex ? 6 : 3
-      );
-      
-      // Change the line style for the forecast segment
-      const originalData = [...chartData.datasets[0].data];
-      const originalBorderColor = [...(Array.isArray(chartData.datasets[0].borderColor) ? 
-        chartData.datasets[0].borderColor : 
-        Array(chartData.datasets[0].data.length).fill(chartData.datasets[0].borderColor))];
-      
-      // Create a segment dataset for the forecast (dashed line)
-      chartData.datasets.push({
-        label: 'Forecast',
-        data: [originalData[originalData.length - 2], originalData[originalData.length - 1]],
-        borderColor: 'rgba(255, 99, 132, 1)',
-        backgroundColor: 'rgba(255, 99, 132, 0.1)',
-        borderWidth: 2,
-        borderDash: [5, 5],
-        pointRadius: [0, 6],
-        pointBackgroundColor: 'rgba(255, 99, 132, 1)',
-        tension: 0.1,
-        fill: false
-      });
-      
-      // Remove the last point from the main dataset
-      chartData.datasets[0].data.pop();
-      chartData.datasets[0].pointBackgroundColor = chartData.datasets[0].pointBackgroundColor.slice(0, -1);
-      chartData.datasets[0].pointRadius = chartData.datasets[0].pointRadius.slice(0, -1);
+    if (showForecast && forecastAmount) {
+      // Special case for single-month view
+      if (data.labels.length === 1) {
+        // For a single month, we'll manually add a single point to the chart
+        // and then add the forecast point
+        const singleLabel = data.labels[0];
+        let nextMonthLabel = '';
+        
+        // Try to parse the month format and create the next month label
+        if (/^\d{4}-\d{2}$/.test(singleLabel)) {
+          // Format is YYYY-MM
+          const year = parseInt(singleLabel.substring(0, 4));
+          const month = parseInt(singleLabel.substring(5, 7));
+          
+          if (month === 12) {
+            nextMonthLabel = `${year + 1}-01`;
+          } else {
+            nextMonthLabel = `${year}-${String(month + 1).padStart(2, '0')}`;
+          }
+        } else {
+          // Fallback to simple labeling if we can't parse the date format
+          nextMonthLabel = 'Forecast';
+        }
+        
+        // Create the forecast dataset
+        chartData = {
+          labels: [singleLabel, nextMonthLabel],
+          datasets: [
+            {
+              label: 'Monthly Spend',
+              data: [sortedValues[0]],
+              backgroundColor: 'rgba(59, 130, 246, 0.2)',
+              borderColor: 'rgba(59, 130, 246, 1)',
+              borderWidth: 2,
+              tension: 0.1,
+              fill: true
+            },
+            {
+              label: 'Forecast',
+              data: [null, forecastAmount], // null for first point to avoid connecting line
+              borderColor: 'rgba(255, 99, 132, 1)',
+              backgroundColor: 'rgba(255, 99, 132, 0.1)',
+              borderWidth: 2,
+              borderDash: [5, 5],
+              pointRadius: [0, 6],
+              pointBackgroundColor: 'rgba(255, 99, 132, 1)',
+              tension: 0,
+              fill: false
+            }
+          ]
+        };
+      } else {
+        // For multiple months, use the standard approach with the helper function
+        chartData = addForecastToMonthlyChart(chartData, forecastAmount);
+        
+        // Modified options for forecast styling
+        const forecastIndex = chartData.labels.length - 1;
+        
+        chartData.datasets[0].pointBackgroundColor = chartData.datasets[0].data.map((_, i) => 
+          i === forecastIndex ? 'rgba(255, 99, 132, 1)' : 'rgba(59, 130, 246, 1)'
+        );
+        
+        chartData.datasets[0].pointRadius = chartData.datasets[0].data.map((_, i) => 
+          i === forecastIndex ? 6 : 3
+        );
+        
+        // Change the line style for the forecast segment
+        const originalData = [...chartData.datasets[0].data];
+        const originalBorderColor = [...(Array.isArray(chartData.datasets[0].borderColor) ? 
+          chartData.datasets[0].borderColor : 
+          Array(chartData.datasets[0].data.length).fill(chartData.datasets[0].borderColor))];
+        
+        // Create a segment dataset for the forecast (dashed line)
+        chartData.datasets.push({
+          label: 'Forecast',
+          data: [originalData[originalData.length - 2], originalData[originalData.length - 1]],
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.1)',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          pointRadius: [0, 6],
+          pointBackgroundColor: 'rgba(255, 99, 132, 1)',
+          tension: 0.1,
+          fill: false
+        });
+        
+        // Remove the last point from the main dataset
+        chartData.datasets[0].data.pop();
+        chartData.datasets[0].pointBackgroundColor = chartData.datasets[0].pointBackgroundColor.slice(0, -1);
+        chartData.datasets[0].pointRadius = chartData.datasets[0].pointRadius.slice(0, -1);
+      }
     }
     
     chartInstance.current = new Chart(ctx, {

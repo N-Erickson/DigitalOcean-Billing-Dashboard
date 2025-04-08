@@ -71,6 +71,18 @@ export const Dashboard = ({
     setShowForecast(!showForecast);
   };
 
+  // Custom label for displaying the forecast confidence text based on time range
+  const getForecastLabel = () => {
+    if (!processedData || !processedData.summary) return '';
+    
+    // For 1-month view, add a special note
+    if (timeRange === '1month') {
+      return 'Forecast based on available data trends (may use data outside current view)';
+    }
+    
+    return processedData.summary.confidenceText || '';
+  };
+
   // Download full billing data as CSV
   const downloadBillingCSV = () => {
     if (!filteredLineItems || filteredLineItems.length === 0) {
@@ -206,9 +218,9 @@ export const Dashboard = ({
                 forecastAmount={processedData.summary.forecastAmount} 
               />
             </div>
-            {showForecast && processedData.summary.confidenceText && (
+            {showForecast && (
               <div style={{ textAlign: 'right', marginTop: '5px', fontSize: '12px', color: '#666' }}>
-                {processedData.summary.confidenceText}
+                {getForecastLabel()}
               </div>
             )}
           </div>
