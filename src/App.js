@@ -3,11 +3,51 @@ import { LoginForm } from './components/LoginForm';
 import { Dashboard } from './components/Dashboard';
 import { AccountSelector } from './components/AccountSelector';
 import './App.css';
-
-// Import new CSV and storage utilities
 import { fetchAllInvoiceData, processCSVDataForVisualizations } from './utils/csvUtils';
 import { saveData, loadData, needsRefresh, clearAccountData, getCacheStatus } from './utils/storageUtils';
 import { filterLineItemsByTimeRange } from './utils/dataUtils';
+
+// Enhanced function to parse environment variables from multiple sources
+const parseEnvironmentAccounts = () => {
+  // Check multiple sources for environment variables
+  // 1. window.ENV_VARS (set by container)
+  // 2. Direct values in env-config.js
+  // 3. React environment variables (for development)
+  const tokens = window.ENV_VARS?.DO_API_TOKENS || 
+                 process.env.REACT_APP_DO_API_TOKENS || 
+                 null;
+                 
+  const names = window.ENV_VARS?.DO_ACCOUNT_NAMES || 
+                process.env.REACT_APP_DO_ACCOUNT_NAMES || 
+                null;
+  
+  if (tokens && names) {
+    try {
+      console.log("Found environment variables for tokens and account names");
+      const tokenArray = tokens.split(',');
+      const nameArray = names.split(',');
+      
+      // Ensure we have matching numbers of tokens and names
+      if (tokenArray.length !== nameArray.length) {
+        console.error('Mismatch between number of tokens and account names in environment variables');
+        return null;
+      }
+      
+      // Create account objects
+      return tokenArray.map((token, index) => ({
+        name: nameArray[index].trim(),
+        token: token.trim()
+      }));
+    } catch (error) {
+      console.error('Error parsing environment accounts:', error);
+      return null;
+    }
+  }
+  
+  // If no environment variables are found, return null
+  console.log("No environment variables found for tokens and account names");
+  return null;
+};
 
 function App() {
   // Multi-account state
@@ -30,7 +70,24 @@ function App() {
   const [cacheStatus, setCacheStatus] = useState({ isCached: false });
 
   useEffect(() => {
-    // Check for stored accounts and auto-login
+    // First check for environment variable accounts
+    const envAccounts = parseEnvironmentAccounts();
+    
+    if (envAccounts && envAccounts.length > 0) {
+      console.log(`Found ${envAccounts.length} accounts from environment variables`);
+      setAccounts(envAccounts);
+      setIsLoggedIn(true);
+      
+      // Also save to localStorage for future usage
+      localStorage.setItem('doAccounts', JSON.stringify(envAccounts));
+      
+      // Load data for the first account by default
+      const firstAccount = envAccounts[0];
+      loadAccountData(firstAccount.token, firstAccount.name);
+      return;
+    }
+    
+    // If no environment accounts, fall back to stored accounts
     const storedAccounts = localStorage.getItem('doAccounts');
     if (storedAccounts) {
       const parsedAccounts = JSON.parse(storedAccounts);
@@ -465,8 +522,6 @@ function App() {
           <AccountSelector 
             accounts={accounts}
             currentIndex={currentAccountIndex}
-            onSwitchAccount={handleAccountSwitch}
-            onRemoveAccount={handleRemoveAccount}
             onSwitchAccount={handleAccountSwitch}
             onRemoveAccount={handleRemoveAccount}
             onAddAccount={handleAddAccount}
