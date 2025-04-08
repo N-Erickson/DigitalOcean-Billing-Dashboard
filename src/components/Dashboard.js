@@ -30,6 +30,7 @@ export const Dashboard = ({
   const [showDataNotice, setShowDataNotice] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [filteredLineItems, setFilteredLineItems] = useState([]);
+  const [showForecast, setShowForecast] = useState(true); // New state for forecast toggle
   
   // Effect to filter line items by time range
   useEffect(() => {
@@ -63,6 +64,11 @@ export const Dashboard = ({
   // Close data notice
   const closeDataNotice = () => {
     setShowDataNotice(false);
+  };
+
+  // Toggle forecast display
+  const toggleForecast = () => {
+    setShowForecast(!showForecast);
   };
 
   // Download full billing data as CSV
@@ -181,10 +187,30 @@ export const Dashboard = ({
           <SummaryCards summary={processedData.summary} accountName={accountName} />
 
           <div className="chart-container">
-            <h3 className="chart-title">Monthly Spend Trend - {accountName}</h3>
-            <div className="chart">
-              <MonthlyChart data={processedData.monthlyData} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3 className="chart-title">Monthly Spend Trend - {accountName}</h3>
+              <label style={{ display: 'flex', alignItems: 'center', fontSize: '14px', color: '#666' }}>
+                <input 
+                  type="checkbox" 
+                  checked={showForecast} 
+                  onChange={toggleForecast} 
+                  style={{ marginRight: '5px' }}
+                />
+                Show Next Month Forecast
+              </label>
             </div>
+            <div className="chart">
+              <MonthlyChart 
+                data={processedData.monthlyData} 
+                showForecast={showForecast} 
+                forecastAmount={processedData.summary.forecastAmount} 
+              />
+            </div>
+            {showForecast && processedData.summary.confidenceText && (
+              <div style={{ textAlign: 'right', marginTop: '5px', fontSize: '12px', color: '#666' }}>
+                {processedData.summary.confidenceText}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>

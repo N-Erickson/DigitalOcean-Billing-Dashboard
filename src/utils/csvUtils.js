@@ -277,7 +277,7 @@ export const processCSVDataForVisualizations = (lineItems, timeRange = null) => 
   const monthlyLabels = sortedMonths;
   const monthlyValues = sortedMonths.map(month => monthlySpend[month]);
   
-  // Calculate trend and forecast
+  // Calculate trend and forecast - ENHANCED VERSION
   const { trendText, forecastAmount, confidenceText } = 
     calculateTrendAndForecast(monthlyLabels, monthlyValues, validItemCount);
   
@@ -314,169 +314,294 @@ const processInvoiceTotals = (lineItems) => {
     // Skip if we've already processed this invoice
     if (invoices.has(item.invoice_uuid)) return;
     
-// For invoice amounts, make sure to parse correctly if it's a string
-let amount = 0;
-if (item.invoice_amount) {
-  if (typeof item.invoice_amount === 'string') {
-    // Remove currency symbols if present
-    const cleaned = item.invoice_amount.replace(/[^\d.-]/g, '');
-    amount = parseFloat(cleaned);
-  } else if (typeof item.invoice_amount === 'number') {
-    amount = item.invoice_amount;
+    // For invoice amounts, make sure to parse correctly if it's a string
+    let amount = 0;
+    if (item.invoice_amount) {
+      if (typeof item.invoice_amount === 'string') {
+        // Remove currency symbols if present
+        const cleaned = item.invoice_amount.replace(/[^\d.-]/g, '');
+        amount = parseFloat(cleaned);
+      } else if (typeof item.invoice_amount === 'number') {
+        amount = item.invoice_amount;
+      }
+    }
+    
+    if (amount <= 0) return;
+    
+    invoices.add(item.invoice_uuid);
+    invoiceAmounts[item.invoice_period] = (invoiceAmounts[item.invoice_period] || 0) + amount;
+    totalAmount += amount;
+    
+    // Add to single categories
+    projectSpend['All Projects'] += amount;
+    categorySpend['All Services'] += amount;
+    productSpend['All Products'] += amount;
+  });
+  
+  // Sort months
+  const monthKeys = Object.keys(invoiceAmounts);
+  const sortedMonths = monthKeys.sort((a, b) => {
+    const dateA = parseMonthPeriod(a);
+    const dateB = parseMonthPeriod(b);
+    return dateA - dateB;
+  });
+  
+  const monthlyLabels = sortedMonths;
+  const monthlyValues = sortedMonths.map(month => invoiceAmounts[month]);
+  
+  console.log("Using invoice totals: ", totalAmount);
+  console.log("Monthly data from invoice totals:", monthlyLabels, monthlyValues);
+  
+  // If still no data, return empty result
+  if (totalAmount === 0) {
+    return createEmptyVisualizationData();
   }
-}
-
-if (amount <= 0) return;
-
-invoices.add(item.invoice_uuid);
-invoiceAmounts[item.invoice_period] = (invoiceAmounts[item.invoice_period] || 0) + amount;
-totalAmount += amount;
-
-// Add to single categories
-projectSpend['All Projects'] += amount;
-categorySpend['All Services'] += amount;
-productSpend['All Products'] += amount;
-});
-
-// Sort months
-const monthKeys = Object.keys(invoiceAmounts);
-const sortedMonths = monthKeys.sort((a, b) => {
-const dateA = parseMonthPeriod(a);
-const dateB = parseMonthPeriod(b);
-return dateA - dateB;
-});
-
-const monthlyLabels = sortedMonths;
-const monthlyValues = sortedMonths.map(month => invoiceAmounts[month]);
-
-console.log("Using invoice totals: ", totalAmount);
-console.log("Monthly data from invoice totals:", monthlyLabels, monthlyValues);
-
-// If still no data, return empty result
-if (totalAmount === 0) {
-return createEmptyVisualizationData();
-}
-
-// Calculate trend and forecast
-const { trendText, forecastAmount, confidenceText } = 
-calculateTrendAndForecast(monthlyLabels, monthlyValues, invoices.size);
-
-return {
-monthlyData: { labels: monthlyLabels, values: monthlyValues },
-categoryData: categorySpend,
-projectData: projectSpend,
-productData: productSpend,
-summary: {
-  totalAmount,
-  invoiceCount: invoices.size,
-  totalItems: lineItems.length,
-  trendText,
-  forecastAmount,
-  confidenceText
-}
-};
+  
+  // Calculate trend and forecast - ENHANCED VERSION
+  const { trendText, forecastAmount, confidenceText } = 
+    calculateTrendAndForecast(monthlyLabels, monthlyValues, invoices.size);
+  
+  return {
+    monthlyData: { labels: monthlyLabels, values: monthlyValues },
+    categoryData: categorySpend,
+    projectData: projectSpend,
+    productData: productSpend,
+    summary: {
+      totalAmount,
+      invoiceCount: invoices.size,
+      totalItems: lineItems.length,
+      trendText,
+      forecastAmount,
+      confidenceText
+    }
+  };
 };
 
 // Helper function to parse month period strings into comparable dates
 const parseMonthPeriod = (periodStr) => {
-if (!periodStr) return new Date(0); // Default for empty strings
-
-// Check if it's already in YYYY-MM format
-if (/^\d{4}-\d{2}$/.test(periodStr)) {
-return new Date(`${periodStr}-01`);
-}
-
-// Try to parse various date formats
-try {
-// For "Month YYYY" format (e.g., "January 2023")
-const monthYearMatch = periodStr.match(/([A-Za-z]+)\s+(\d{4})/);
-if (monthYearMatch) {
-  const monthNames = ["january", "february", "march", "april", "may", "june", 
-                     "july", "august", "september", "october", "november", "december"];
-  const month = monthNames.indexOf(monthYearMatch[1].toLowerCase());
-  const year = parseInt(monthYearMatch[2]);
-  if (month !== -1 && !isNaN(year)) {
-    return new Date(year, month, 1);
+  if (!periodStr) return new Date(0); // Default for empty strings
+  
+  // Check if it's already in YYYY-MM format
+  if (/^\d{4}-\d{2}$/.test(periodStr)) {
+    return new Date(`${periodStr}-01`);
   }
-}
-
-// For full date strings
-const date = new Date(periodStr);
-if (!isNaN(date.getTime())) {
-  return date;
-}
-} catch (e) {
-console.warn(`Failed to parse period string: ${periodStr}`);
-}
-
-// Return original string converted to date (may be invalid)
-return new Date(periodStr);
+  
+  // Try to parse various date formats
+  try {
+    // For "Month YYYY" format (e.g., "January 2023")
+    const monthYearMatch = periodStr.match(/([A-Za-z]+)\s+(\d{4})/);
+    if (monthYearMatch) {
+      const monthNames = ["january", "february", "march", "april", "may", "june", 
+                         "july", "august", "september", "october", "november", "december"];
+      const month = monthNames.indexOf(monthYearMatch[1].toLowerCase());
+      const year = parseInt(monthYearMatch[2]);
+      if (month !== -1 && !isNaN(year)) {
+        return new Date(year, month, 1);
+      }
+    }
+    
+    // For full date strings
+    const date = new Date(periodStr);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  } catch (e) {
+    console.warn(`Failed to parse period string: ${periodStr}`);
+  }
+  
+  // Return original string converted to date (may be invalid)
+  return new Date(periodStr);
 };
 
 // Create empty data structures when no data is available
 const createEmptyVisualizationData = () => {
-return {
-monthlyData: { labels: [], values: [] },
-categoryData: {'No Data': 0},
-projectData: {'No Data': 0},
-productData: {'No Data': 0},
-summary: {
-  totalAmount: 0,
-  invoiceCount: 0,
-  totalItems: 0,
-  trendText: 'N/A',
-  forecastAmount: 0,
-  confidenceText: 'No data available'
-}
-};
+  return {
+    monthlyData: { labels: [], values: [] },
+    categoryData: {'No Data': 0},
+    projectData: {'No Data': 0},
+    productData: {'No Data': 0},
+    summary: {
+      totalAmount: 0,
+      invoiceCount: 0,
+      totalItems: 0,
+      trendText: 'N/A',
+      forecastAmount: 0,
+      confidenceText: 'No data available'
+    }
+  };
 };
 
-// Calculate trend and forecast from monthly data
+// ENHANCED: Calculate trend and forecast from monthly data with advanced methods
 const calculateTrendAndForecast = (labels, values, itemCount) => {
-if (!labels || !values || labels.length < 2) {
-return {
-  trendText: 'N/A',
-  forecastAmount: 0,
-  confidenceText: `Insufficient data (${itemCount} items)`
+  if (!labels || !values || labels.length < 2) {
+    return {
+      trendText: 'N/A',
+      forecastAmount: 0,
+      confidenceText: `Insufficient data (${itemCount} items)`
+    };
+  }
+
+  // Get the two most recent months for trend calculation
+  const lastIndex = values.length - 1;
+  const lastSpend = values[lastIndex];
+  const prevSpend = values[lastIndex - 1];
+
+  // Calculate trend (same as before)
+  let trendText = 'N/A';
+  if (prevSpend > 0) {
+    const change = lastSpend - prevSpend;
+    const percentChange = (change / prevSpend) * 100;
+    trendText = change >= 0 ? 
+      `Up ${percentChange.toFixed(1)}%` : 
+      `Down ${Math.abs(percentChange).toFixed(1)}%`;
+  }
+
+  // ENHANCED FORECASTING
+  let forecastAmount = 0;
+  let confidenceText = '';
+
+  // Method selection based on data availability
+  if (values.length >= 12) {
+    // Method 1: Use year-over-year seasonality if we have at least 12 months of data
+    const sameMonthLastYear = values[lastIndex - 11];
+    const lastYearGrowth = lastSpend / sameMonthLastYear;
+    
+    // Blend of YoY growth and recent trend
+    forecastAmount = lastSpend * (0.7 * lastYearGrowth + 0.3 * (lastSpend / prevSpend));
+    confidenceText = `Based on year-over-year pattern, ±${Math.min(5, 15 - values.length / 2)}%`;
+  } 
+  else if (values.length >= 6) {
+    // Method 2: For 6-11 months, use weighted average of recent months with more emphasis on recent data
+    // Calculate weighted moving average with more weight to recent months
+    let weightedSum = 0;
+    let weightSum = 0;
+    const weights = [0.35, 0.25, 0.15, 0.10, 0.08, 0.07]; // Weights for last 6 months
+    
+    // Apply weights to available months (up to last 6)
+    for (let i = 0; i < Math.min(6, values.length); i++) {
+      weightedSum += values[lastIndex - i] * weights[i];
+      weightSum += weights[i];
+    }
+    
+    // Get base forecast from weighted average
+    const weightedAvg = weightedSum / weightSum;
+    
+    // Adjust with recent trend factor
+    const recentTrendFactor = lastSpend / prevSpend;
+    forecastAmount = weightedAvg * Math.pow(recentTrendFactor, 0.7); // Dampen the trend impact
+    
+    confidenceText = `Based on weighted 6-month analysis, ±${Math.min(8, 20 - values.length)}%`;
+  }
+  else if (values.length >= 3) {
+    // Method 3: For 3-5 months, use linear regression
+    // Simple linear regression on available months
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    const n = values.length;
+    
+    for (let i = 0; i < n; i++) {
+      sumX += i;
+      sumY += values[lastIndex - (n - 1) + i];
+      sumXY += i * values[lastIndex - (n - 1) + i];
+      sumX2 += i * i;
+    }
+    
+    // Calculate slope and intercept
+    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    
+    // Project one month ahead
+    forecastAmount = intercept + slope * n;
+    
+    // Apply boundary condition - forecast shouldn't be negative or too far from recent values
+    if (forecastAmount < 0) forecastAmount = lastSpend * 0.9;
+    if (forecastAmount > lastSpend * 2) forecastAmount = lastSpend * 1.5;
+    
+    confidenceText = `Based on trend analysis of last ${n} months, ±${20 - n * 2}%`;
+  } 
+  else {
+    // Method 4: For 2 months, simple projection with dampening
+    const growthRate = lastSpend / prevSpend;
+    // Dampen the growth rate to avoid extreme projections
+    const dampedGrowth = 1 + (growthRate - 1) * 0.7;
+    forecastAmount = lastSpend * dampedGrowth;
+    
+    // Apply reasonability bounds
+    if (forecastAmount < 0) forecastAmount = lastSpend;
+    if (forecastAmount > lastSpend * 1.5) forecastAmount = lastSpend * 1.5;
+    
+    confidenceText = 'Based on limited data (2 months), high variance possible';
+  }
+
+  // Add anomaly detection - if last month appears to be an outlier
+  if (values.length >= 4) {
+    const threeMonthAvg = (values[lastIndex - 1] + values[lastIndex - 2] + values[lastIndex - 3]) / 3;
+    const deviation = Math.abs(lastSpend - threeMonthAvg) / threeMonthAvg;
+    
+    if (deviation > 0.3) { // If last month deviates by more than 30% from previous 3-month average
+      // Adjust the forecast to be more conservative by blending with the 3-month average
+      forecastAmount = forecastAmount * 0.7 + threeMonthAvg * 0.3;
+      confidenceText += ' (adjusted for recent anomaly)';
+    }
+  }
+
+  return { trendText, forecastAmount, confidenceText };
 };
-}
 
-// Get the two most recent months
-const lastIndex = values.length - 1;
-const lastSpend = values[lastIndex];
-const prevSpend = values[lastIndex - 1];
-
-// Calculate trend
-let trendText = 'N/A';
-if (prevSpend > 0) {
-const change = lastSpend - prevSpend;
-const percentChange = (change / prevSpend) * 100;
-trendText = change >= 0 ? 
-  `Up ${percentChange.toFixed(1)}%` : 
-  `Down ${Math.abs(percentChange).toFixed(1)}%`;
-}
-
-// Calculate forecast (simple linear projection)
-let forecastAmount = 0;
-let confidenceText = '';
-
-if (values.length >= 3) {
-// Use last 3 months for forecast
-const recentValues = values.slice(-3);
-
-// Calculate average month-to-month change
-const avgChange = (recentValues[2] - recentValues[0]) / 2;
-
-// Project forward from latest
-forecastAmount = recentValues[2] + avgChange;
-if (forecastAmount < 0) forecastAmount = recentValues[2]; // No negative forecasts
-
-confidenceText = `Based on ${values.length} months of data, ±${Math.min(10, values.length * 2)}%`;
-} else if (values.length > 0) {
-// With limited data, just use the most recent value
-forecastAmount = values[values.length - 1];
-confidenceText = 'Limited historical data, high variance';
-}
-
-return { trendText, forecastAmount, confidenceText };
+// Helper function to add forecast visualization to chart data
+export const addForecastToMonthlyChart = (chartData, forecastAmount) => {
+  if (!chartData || !chartData.labels || chartData.labels.length === 0 || !chartData.datasets) 
+    return chartData;
+  
+  // Clone the chart data
+  const newChartData = {
+    labels: [...chartData.labels],
+    datasets: JSON.parse(JSON.stringify(chartData.datasets))
+  };
+  
+  // Get the last month label and create a forecast month label
+  const lastMonth = chartData.labels[chartData.labels.length - 1];
+  let nextMonth = "";
+  
+  // Try to parse the last month format and increment by one month
+  if (/^\d{4}-\d{2}$/.test(lastMonth)) {
+    // Format is YYYY-MM
+    const year = parseInt(lastMonth.substring(0, 4));
+    const month = parseInt(lastMonth.substring(5, 7));
+    
+    if (month === 12) {
+      nextMonth = `${year + 1}-01`;
+    } else {
+      nextMonth = `${year}-${String(month + 1).padStart(2, '0')}`;
+    }
+  } else {
+    // If we can't parse the format, just append " (Forecast)" to the last month
+    nextMonth = `${lastMonth} (Forecast)`;
+  }
+  
+  // Add forecast month to labels
+  newChartData.labels.push(nextMonth);
+  
+  // Add forecast data point to each dataset
+  newChartData.datasets = newChartData.datasets.map(dataset => {
+    const lastValue = dataset.data[dataset.data.length - 1];
+    const forecastPoint = forecastAmount;
+    
+    // Create a new dataset with forecast point added
+    return {
+      ...dataset,
+      data: [...dataset.data, forecastPoint],
+      // The following properties need to be added carefully since Chart.js expects arrays
+      // or single values depending on the property
+      pointBackgroundColor: Array.isArray(dataset.pointBackgroundColor) 
+        ? [...dataset.pointBackgroundColor, 'rgba(255, 99, 132, 1)'] 
+        : dataset.pointBackgroundColor,
+      pointRadius: Array.isArray(dataset.pointRadius)
+        ? [...dataset.pointRadius, 6]
+        : 3,
+      // We need to be careful with borderDash as it might cause visual issues if not handled properly
+      borderDash: dataset.borderDash || []
+    };
+  });
+  
+  return newChartData;
 };
