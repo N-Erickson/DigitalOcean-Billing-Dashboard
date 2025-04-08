@@ -7,89 +7,52 @@ import { ProductChart } from './charts/ProductChart';
 import { DetailedLineItemsChart } from './charts/DetailedLineItemsChart';
 import { LineItemExplorer } from './LineItemExplorer';
 import { InvoiceTable } from './InvoiceTable';
-import { formatCurrency, processData, processProjectData } from '../utils/dataUtils';
+import { formatCurrency, filterLineItemsByTimeRange } from '../utils/dataUtils';
 
 export const Dashboard = ({ 
   accountName,
   allInvoices, 
   allInvoiceSummaries, 
   detailedLineItems,
+  processedData,
   isLoading, 
   error, 
+  statusMessage,
+  cacheStatus,
   apiToken, 
   timeRange, 
   onLogout, 
   onRefresh, 
+  onClearCache,
   onTimeRangeChange,
   fetchLineItemDetails
 }) => {
   const [showDataNotice, setShowDataNotice] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [processedData, setProcessedData] = useState({
-    monthlyData: { labels: [], values: [] },
-    categoryData: {},
-    projectData: {},
-    productData: {},
-    summary: {
-      totalAmount: 0,
-      invoiceCount: 0,
-      totalItems: 0,
-      trendText: 'N/A',
-      forecastAmount: 0,
-      confidenceText: ''
-    }
-  });
-  const [projectData, setProjectData] = useState({});
-
-  // Process data when invoices, summaries, or time range changes - for main charts
+  const [filteredLineItems, setFilteredLineItems] = useState([]);
+  
+  // Effect to filter line items by time range
   useEffect(() => {
-    if (allInvoices.length > 0 && allInvoiceSummaries.length > 0) {
-      const data = processData(allInvoices, allInvoiceSummaries, timeRange);
-      setProcessedData(data);
+    if (detailedLineItems && detailedLineItems.length > 0) {
+      const filtered = filterLineItemsByTimeRange(detailedLineItems, timeRange);
+      console.log(`Filtered line items by time range: ${filtered.length} of ${detailedLineItems.length} items`);
+      setFilteredLineItems(filtered);
+    } else {
+      setFilteredLineItems([]);
     }
-  }, [allInvoices, allInvoiceSummaries, timeRange]);
-
-  // Process project data separately
+  }, [detailedLineItems, timeRange]);
+  
   useEffect(() => {
-    if (detailedLineItems.length > 0 && allInvoices.length > 0) {
-      const data = processProjectData(detailedLineItems, timeRange, allInvoices);
-      setProjectData(data);
-    }
-  }, [detailedLineItems, allInvoices, timeRange]);
-
-  // Download full billing data as CSV
-  const downloadBillingCSV = () => {
-    const csvRows = ['Invoice ID,Period,Date,Amount,Category,Project,Product,Item Amount'];
-    allInvoiceSummaries.forEach(summary => {
-      const invoice = allInvoices.find(inv => inv.invoice_uuid === summary.invoice_uuid) || {};
-      const productItems = (summary.product_charges && summary.product_charges.items) || [];
-      const overageItems = (summary.overages && summary.overages.items) || [];
-      
-      [...productItems, ...overageItems].forEach(item => {
-        const row = [
-          summary.invoice_uuid,
-          invoice.invoice_period || 'N/A',
-          invoice.created_at ? new Date(invoice.created_at).toISOString().slice(0, 10) : 'N/A',
-          invoice.amount || '0',
-          item.name || item.group_description || item.description || 'Unknown',
-          item.project_name || item.resource_id || item.resource_name || 'Unassigned',
-          item.name || item.product || item.type || 'Unknown',
-          item.amount || '0'
-        ].map(val => `"${val}"`).join(',');
-        csvRows.push(row);
+    // Log details about the processed data for debugging
+    if (processedData) {
+      console.log("Dashboard received processed data:", {
+        monthlyDataPoints: processedData.monthlyData?.labels?.length || 0,
+        categoryCount: Object.keys(processedData.categoryData || {}).length,
+        projectCount: Object.keys(processedData.projectData || {}).length,
+        totalAmount: processedData.summary?.totalAmount || 0
       });
-    });
-
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${accountName.replace(/\s+/g, '_').toLowerCase()}_billing_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+    }
+  }, [processedData]);
 
   // Handle category click for drill-down
   const handleCategoryClick = (category) => {
@@ -100,6 +63,63 @@ export const Dashboard = ({
   // Close data notice
   const closeDataNotice = () => {
     setShowDataNotice(false);
+  };
+
+  // Download full billing data as CSV
+  const downloadBillingCSV = () => {
+    if (!filteredLineItems || filteredLineItems.length === 0) {
+      alert('No data available to download.');
+      return;
+    }
+    
+    // Get all columns from the first item
+    const firstItem = filteredLineItems[0];
+    const headers = Object.keys(firstItem);
+    
+    // Create CSV content
+    const csvRows = [headers.join(',')];
+    
+    filteredLineItems.forEach(item => {
+      const row = headers.map(field => {
+        const value = item[field];
+        // Format value for CSV (handle commas, quotes, etc.)
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'string') return `"${value.replace(/"/g, '""')}"`;
+        return value;
+      });
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${accountName.replace(/\s+/g, '_').toLowerCase()}_billing_${timeRange}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Render data notice based on cache status
+  const renderDataNotice = () => {
+    if (statusMessage) {
+      return (
+        <div className="data-source-notice">
+          {statusMessage}
+          <button className="close-btn" onClick={closeDataNotice}>×</button>
+        </div>
+      );
+    } else if (cacheStatus.isCached) {
+      return (
+        <div className="data-source-notice">
+          Using cached data from {cacheStatus.formattedDate}
+          {cacheStatus.isReduced && " (reduced dataset due to storage limitations)"}
+          <button className="close-btn" onClick={closeDataNotice}>×</button>
+        </div>
+      );
+    }
+    return null;
   };
 
   return (
@@ -124,8 +144,11 @@ export const Dashboard = ({
           <button onClick={onRefresh} disabled={isLoading}>
             Refresh Data
           </button>
-          <button onClick={downloadBillingCSV} disabled={isLoading || allInvoices.length === 0}>
+          <button onClick={downloadBillingCSV} disabled={isLoading || filteredLineItems.length === 0}>
             Download CSV
+          </button>
+          <button onClick={onClearCache} disabled={isLoading || !cacheStatus.isCached}>
+            Clear Cache
           </button>
           <button onClick={onLogout}>
             Logout
@@ -133,12 +156,7 @@ export const Dashboard = ({
         </div>
       </header>
 
-      {showDataNotice && apiToken && (
-        <div className="data-source-notice">
-          Connected to DigitalOcean API - Using real billing data for account: {accountName}
-          <button className="close-btn" onClick={closeDataNotice}>×</button>
-        </div>
-      )}
+      {showDataNotice && renderDataNotice()}
 
       {isLoading && (
         <div className="loading-indicator">
@@ -153,8 +171,13 @@ export const Dashboard = ({
         </div>
       )}
 
-      {!isLoading && (
+      {!isLoading && processedData && (
         <>
+          <div className="time-range-info" style={{ marginBottom: '15px', fontSize: '14px', color: '#666' }}>
+            Showing data for {timeRange === 'all' ? 'all time' : `last ${timeRange}`}
+            ({filteredLineItems.length} of {detailedLineItems.length} line items)
+          </div>
+
           <SummaryCards summary={processedData.summary} accountName={accountName} />
 
           <div className="chart-container">
@@ -179,9 +202,7 @@ export const Dashboard = ({
                 </div>
               )}
               <div className="chart" style={{ height: "400px" }}>
-                <ProjectChart 
-                  data={Object.keys(projectData).length > 0 ? projectData : processedData.projectData} 
-                />
+                <ProjectChart data={processedData.projectData} />
               </div>
             </div>
           </div>
@@ -207,7 +228,7 @@ export const Dashboard = ({
                 />
               ) : (
                 <DetailedLineItemsChart 
-                  detailedLineItems={detailedLineItems}
+                  detailedLineItems={filteredLineItems} // Use filtered line items here
                   timeRange={timeRange}
                   onCategoryClick={handleCategoryClick}
                   accountName={accountName}

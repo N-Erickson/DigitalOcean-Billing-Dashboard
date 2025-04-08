@@ -11,10 +11,25 @@ export const ProductChart = ({ data }) => {
       chartInstance.current.destroy();
     }
 
+    // Return early if no meaningful data
+    if (!data || Object.keys(data).length === 0) {
+      console.log("No product data available for chart");
+      return;
+    }
+
+    console.log("Creating product chart with data:", data);
     const ctx = chartRef.current.getContext('2d');
     
-    const labels = Object.keys(data);
-    const values = Object.values(data);
+    // Sort products by spend amount (descending)
+    const sortedEntries = Object.entries(data)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15); // Limit to top 15 products for better readability
+    
+    const labels = sortedEntries.map(([key]) => key);
+    const values = sortedEntries.map(([, value]) => value);
+    
+    // Calculate total for all products
+    const totalAmount = Object.values(data).reduce((sum, val) => sum + val, 0);
     
     chartInstance.current = new Chart(ctx, {
       type: 'bar',
@@ -37,12 +52,35 @@ export const ProductChart = ({ data }) => {
             ticks: { 
               callback: value => '$' + value.toLocaleString() 
             } 
+          },
+          y: {
+            ticks: {
+              // Truncate long product names
+              callback: function(value) {
+                const label = this.getLabelForValue(value);
+                return label.length > 30 ? label.substring(0, 27) + '...' : label;
+              }
+            }
           }
         },
         plugins: {
           tooltip: {
             callbacks: {
               label: context => `Spend: ${formatCurrency(context.raw)}`
+            }
+          },
+          legend: {
+            display: false // Hide legend since product names are on Y-axis
+          },
+          title: {
+            display: Object.keys(data).length > 15,
+            text: `Showing top 15 of ${Object.keys(data).length} products`,
+            position: 'bottom',
+            padding: {
+              top: 10
+            },
+            font: {
+              size: 14
             }
           }
         }
@@ -56,5 +94,25 @@ export const ProductChart = ({ data }) => {
     };
   }, [data]);
 
-  return <canvas ref={chartRef} />;
+  // Determine if we have data or need to show a message
+  const hasData = data && Object.keys(data).length > 0;
+
+  return (
+    <div style={{ height: '100%', position: 'relative' }}>
+      {!hasData ? (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center',
+          height: '100%',
+          color: '#6b7280',
+          fontStyle: 'italic'
+        }}>
+          No product data available
+        </div>
+      ) : (
+        <canvas ref={chartRef} />
+      )}
+    </div>
+  );
 };
