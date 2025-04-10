@@ -277,7 +277,7 @@ export const processCSVDataForVisualizations = (lineItems, timeRange = null) => 
   const monthlyLabels = sortedMonths;
   const monthlyValues = sortedMonths.map(month => monthlySpend[month]);
   
-  // Calculate trend and forecast - ENHANCED VERSION
+  // Calculate trend and forecast with improved methods
   const { trendText, forecastAmount, confidenceText } = 
     calculateTrendAndForecast(monthlyLabels, monthlyValues, validItemCount);
   
@@ -357,7 +357,7 @@ const processInvoiceTotals = (lineItems) => {
     return createEmptyVisualizationData();
   }
   
-  // Calculate trend and forecast - ENHANCED VERSION
+  // Calculate trend and forecast with improved methods
   const { trendText, forecastAmount, confidenceText } = 
     calculateTrendAndForecast(monthlyLabels, monthlyValues, invoices.size);
   
@@ -431,10 +431,10 @@ const createEmptyVisualizationData = () => {
   };
 };
 
-// ENHANCED: Calculate trend and forecast from monthly data with advanced methods
+// IMPROVED: Calculate trend and forecast from monthly data with advanced methods
 const calculateTrendAndForecast = (labels, values, itemCount) => {
   // Handle the case where we don't have enough data
-  if (!labels || !values) {
+  if (!labels || !values || values.length === 0) {
     return {
       trendText: 'N/A',
       forecastAmount: 0,
@@ -487,53 +487,128 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
       `Down ${Math.abs(percentChange).toFixed(1)}%`;
   }
 
-  // ENHANCED FORECASTING
+  // IMPROVED FORECASTING METHODS
   let forecastAmount = 0;
   let confidenceText = '';
 
-  // For timeRange = '1month' or any case with limited visible data,
-  // we'll try to make a reasonable projection using available data
+  // For limited visible data
   if (!fullDataset) {
-    // Simple approach: Use the lastSpend with a slight growth factor
-    // This is a fallback when we can't do a proper trend analysis
-    forecastAmount = lastSpend * 1.05; // Assume 5% growth
+    forecastAmount = lastSpend * 1.03; // Assume 3% growth instead of 5%
     confidenceText = 'Based on limited visible data, high variance possible';
   }
-  // Normal forecasting path with multiple methods based on data availability
+  // For 12+ months of data
   else if (values.length >= 12) {
-    // Method 1: Use year-over-year seasonality if we have at least 12 months of data
-    const sameMonthLastYear = values[values.length - 12];
-    const lastYearGrowth = lastSpend / sameMonthLastYear;
+    // IMPROVED METHOD FOR 12+ MONTHS: Multiple model ensemble
     
-    // Blend of YoY growth and recent trend
-    forecastAmount = lastSpend * (0.7 * lastYearGrowth + 0.3 * (lastSpend / prevSpend));
-    confidenceText = `Based on year-over-year pattern, ±${Math.min(5, 15 - values.length / 2)}%`;
+    // 1. Calculate moving average growth rates (last 3, 6, and 12 months)
+    const last3MonthsAvg = values.slice(-3).reduce((sum, val) => sum + val, 0) / 3;
+    const last6MonthsAvg = values.slice(-6).reduce((sum, val) => sum + val, 0) / 6;
+    
+    // 2. Calculate month-over-month growth rates
+    const recentGrowthRates = [];
+    for (let i = 1; i < Math.min(6, values.length); i++) {
+      if (values[values.length - i - 1] > 0) {
+        recentGrowthRates.push(values[values.length - i] / values[values.length - i - 1]);
+      }
+    }
+    
+    // Average of recent growth rates
+    const avgGrowthRate = recentGrowthRates.length > 0 ? 
+      recentGrowthRates.reduce((sum, rate) => sum + rate, 0) / recentGrowthRates.length : 1;
+    
+    // 3. Calculate seasonal index (compare current month to trailing average)
+    // For 12-month view, we need to avoid comparing with ourselves
+    let seasonalFactor = 1;
+    if (values.length > 12) {
+      // Use true seasonal comparison with prior year
+      const sameMonthLastYear = values[values.length - 12];
+      const trailingAvgLastYear = values.slice(-15, -9).reduce((sum, val) => sum + val, 0) / 6;
+      
+      if (trailingAvgLastYear > 0) {
+        // How much this month typically differs from the average
+        seasonalFactor = (sameMonthLastYear / trailingAvgLastYear);
+      }
+    } else {
+      // For exactly 12 months, use the overall pattern in the data
+      // rather than comparing with ourselves
+      const firstHalfAvg = values.slice(0, 6).reduce((sum, val) => sum + val, 0) / 6;
+      const secondHalfAvg = values.slice(-6).reduce((sum, val) => sum + val, 0) / 6;
+      
+      if (firstHalfAvg > 0) {
+        const overallGrowthFactor = secondHalfAvg / firstHalfAvg;
+        // Apply a dampened growth factor
+        seasonalFactor = Math.pow(overallGrowthFactor, 1/6); // Sixth root for monthly growth
+      }
+    }
+    
+    // Cap seasonal factor to avoid extreme values
+    seasonalFactor = Math.max(0.8, Math.min(1.2, seasonalFactor));
+    
+    // 4. Calculate variance to determine confidence
+    const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+    const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+    const coefficientOfVariation = Math.sqrt(variance) / mean;
+    
+    // 5. Ensemble forecast using all factors
+    // Weighted blend of different models
+    const trendModelForecast = lastSpend * avgGrowthRate;
+    const movingAvgForecast = (last3MonthsAvg * 0.7 + last6MonthsAvg * 0.3) * seasonalFactor;
+    
+    // Final forecast with weightings
+    forecastAmount = trendModelForecast * 0.6 + movingAvgForecast * 0.4;
+    
+    // Confidence text based on actual variance in the data
+    const confidencePercent = Math.min(25, Math.max(5, Math.round(coefficientOfVariation * 100)));
+    confidenceText = `Based on ${values.length} months with seasonal adjustment, ±${confidencePercent}%`;
   } 
   else if (values.length >= 6) {
-    // Method 2: For 6-11 months, use weighted average of recent months with more emphasis on recent data
-    // Calculate weighted moving average with more weight to recent months
+    // IMPROVED METHOD FOR 6-11 MONTHS
+    
+    // Calculate exponentially weighted moving average
+    // More weight to recent months
+    const weights = [0.35, 0.25, 0.15, 0.10, 0.08, 0.07]; // Sum = 1
     let weightedSum = 0;
     let weightSum = 0;
-    const weights = [0.35, 0.25, 0.15, 0.10, 0.08, 0.07]; // Weights for last 6 months
     
-    // Apply weights to available months (up to last 6)
     for (let i = 0; i < Math.min(6, values.length); i++) {
       weightedSum += values[values.length - 1 - i] * weights[i];
       weightSum += weights[i];
     }
     
-    // Get base forecast from weighted average
     const weightedAvg = weightedSum / weightSum;
     
-    // Adjust with recent trend factor
-    const recentTrendFactor = lastSpend / prevSpend;
-    forecastAmount = weightedAvg * Math.pow(recentTrendFactor, 0.7); // Dampen the trend impact
+    // Calculate growth rate with longer-term trend
+    const firstHalf = values.slice(0, Math.floor(values.length / 2));
+    const secondHalf = values.slice(Math.floor(values.length / 2));
     
-    confidenceText = `Based on weighted 6-month analysis, ±${Math.min(8, 20 - values.length)}%`;
+    const firstHalfAvg = firstHalf.reduce((sum, val) => sum + val, 0) / firstHalf.length;
+    const secondHalfAvg = secondHalf.reduce((sum, val) => sum + val, 0) / secondHalf.length;
+    
+    let growthFactor = 1.02; // Default modest growth
+    
+    if (firstHalfAvg > 0) {
+      // Calculate monthly growth factor
+      growthFactor = Math.pow(secondHalfAvg / firstHalfAvg, 1/secondHalf.length);
+      // Cap growth to avoid extreme forecasts
+      growthFactor = Math.max(0.9, Math.min(1.1, growthFactor));
+    }
+    
+    // Retrending method: Weighted average × growth factor
+    forecastAmount = weightedAvg * growthFactor;
+    
+    // Calculate variance for confidence
+    const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+    const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+    const relativeVariance = Math.sqrt(variance) / mean;
+    
+    const confidencePercent = Math.min(20, Math.max(8, Math.round(relativeVariance * 100)));
+    confidenceText = `Based on ${values.length} months trend analysis, ±${confidencePercent}%`;
   }
   else if (values.length >= 3) {
-    // Method 3: For 3-5 months, use linear regression
-    // Simple linear regression on available months
+    // IMPROVED METHOD FOR 3-5 MONTHS
+    // Enhanced linear regression with drift adjustment
+    
+    // 1. Simple linear regression
     let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
     const n = values.length;
     
@@ -545,41 +620,92 @@ const calculateTrendAndForecast = (labels, values, itemCount) => {
     }
     
     // Calculate slope and intercept
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+    const denominator = n * sumX2 - sumX * sumX;
+    const slope = denominator ? (n * sumXY - sumX * sumY) / denominator : 0;
     const intercept = (sumY - slope * sumX) / n;
     
-    // Project one month ahead
-    forecastAmount = intercept + slope * n;
+    // Base projection
+    let baseProjection = intercept + slope * n;
     
-    // Apply boundary condition - forecast shouldn't be negative or too far from recent values
-    if (forecastAmount < 0) forecastAmount = lastSpend * 0.9;
-    if (forecastAmount > lastSpend * 2) forecastAmount = lastSpend * 1.5;
+    // 2. Calculate acceleration/deceleration
+    let acceleration = 0;
+    if (n >= 3) {
+      const firstDiffs = [];
+      for (let i = 1; i < n; i++) {
+        firstDiffs.push(values[i] - values[i-1]);
+      }
+      
+      // Calculate average change in differences (acceleration)
+      let diffSum = 0;
+      for (let i = 1; i < firstDiffs.length; i++) {
+        diffSum += firstDiffs[i] - firstDiffs[i-1];
+      }
+      
+      if (firstDiffs.length > 1) {
+        acceleration = diffSum / (firstDiffs.length - 1);
+        // Dampen the acceleration effect
+        acceleration *= 0.5;
+      }
+    }
     
-    confidenceText = `Based on trend analysis of last ${n} months, ±${20 - n * 2}%`;
+    // Apply acceleration adjustment
+    forecastAmount = baseProjection + acceleration;
+    
+    // Apply reasonable bounds
+    if (forecastAmount < 0) forecastAmount = values[n-1] * 0.9;
+    const maxGrowth = 1 + (0.1 * Math.min(5, n)); // Limit growth based on data points
+    if (forecastAmount > values[n-1] * maxGrowth) forecastAmount = values[n-1] * maxGrowth;
+    
+    // Calculate error bounds based on regression residuals
+    let sumSquaredErrors = 0;
+    for (let i = 0; i < n; i++) {
+      const predicted = intercept + slope * i;
+      sumSquaredErrors += Math.pow(values[i] - predicted, 2);
+    }
+    
+    const standardError = Math.sqrt(sumSquaredErrors / (n - 2));
+    const confidencePercent = Math.min(25, Math.max(10, Math.round((standardError / (sumY / n)) * 100)));
+    
+    confidenceText = `Based on ${n} months regression analysis, ±${confidencePercent}%`;
   } 
   else if (values.length >= 2) {
-    // Method 4: For 2 months, simple projection with dampening
+    // IMPROVED METHOD FOR 2 MONTHS
+    // Use dampened growth with reasonability checks
+    
     const growthRate = lastSpend / prevSpend;
-    // Dampen the growth rate to avoid extreme projections
-    const dampedGrowth = 1 + (growthRate - 1) * 0.7;
-    forecastAmount = lastSpend * dampedGrowth;
     
-    // Apply reasonability bounds
-    if (forecastAmount < 0) forecastAmount = lastSpend;
-    if (forecastAmount > lastSpend * 1.5) forecastAmount = lastSpend * 1.5;
+    // Apply stronger dampening for extreme growth rates
+    let dampening = 0.7; // Default dampening factor
+    if (growthRate > 1.5 || growthRate < 0.75) {
+      dampening = 0.5; // More aggressive dampening for extreme changes
+    }
     
-    confidenceText = 'Based on limited data (2 months), high variance possible';
+    const dampedGrowthRate = 1 + (growthRate - 1) * dampening;
+    forecastAmount = lastSpend * dampedGrowthRate;
+    
+    // Apply more conservative bounds
+    if (forecastAmount < 0) forecastAmount = lastSpend * 0.9;
+    if (forecastAmount > lastSpend * 1.3) forecastAmount = lastSpend * 1.3;
+    
+    confidenceText = 'Based on 2 months of data, high uncertainty (±20%)';
   }
 
-  // Add anomaly detection - if last month appears to be an outlier
+  // Apply anomaly detection and smoothing for all methods
   if (values.length >= 4) {
+    const medianValue = [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
     const threeMonthAvg = (values[values.length - 2] + values[values.length - 3] + values[values.length - 4]) / 3;
-    const deviation = Math.abs(lastSpend - threeMonthAvg) / threeMonthAvg;
     
-    if (deviation > 0.3) { // If last month deviates by more than 30% from previous 3-month average
-      // Adjust the forecast to be more conservative by blending with the 3-month average
-      forecastAmount = forecastAmount * 0.7 + threeMonthAvg * 0.3;
-      confidenceText += ' (adjusted for recent anomaly)';
+    // Check if the last month is an outlier compared to both median and recent average
+    const medianDeviation = Math.abs(lastSpend - medianValue) / medianValue;
+    const recentDeviation = Math.abs(lastSpend - threeMonthAvg) / threeMonthAvg;
+    
+    // If both deviations are high, it's likely an anomaly
+    if (medianDeviation > 0.3 && recentDeviation > 0.25) {
+      // Use a blend that reduces the impact of the anomaly
+      const blendedBaseline = threeMonthAvg * 0.7 + medianValue * 0.3;
+      // Adjust the forecast by blending the original with the adjusted baseline
+      forecastAmount = forecastAmount * 0.4 + blendedBaseline * 0.6;
+      confidenceText += ' (adjusted for potential anomaly)';
     }
   }
 
