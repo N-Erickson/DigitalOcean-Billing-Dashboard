@@ -113,50 +113,112 @@ export const filterLineItemsByTimeRange = (lineItems, selectedRange) => {
   });
 };
 
-// NEW FUNCTION: Extract monetary value from line item
+// UPDATED FUNCTION: Extract monetary value from line item (now handles negative values/discounts)
 export const extractMonetaryValue = (item) => {
-  // For USD field, clean and handle the string values
+  // For USD field, clean and handle the string values (including negative values)
   if ('USD' in item) {
-    // If it's a string like "$18.00", clean it up
+    // If it's a string like "$18.00" or "-$1,779.55", clean it up
     if (typeof item.USD === 'string') {
-      // Remove $ and any other non-numeric characters except decimal point
+      // Remove $ and any other non-numeric characters except decimal point and minus sign
       const cleaned = item.USD.replace(/[^\d.-]/g, '');
       const value = parseFloat(cleaned);
-      if (!isNaN(value)) return value;
+      if (!isNaN(value)) {
+        console.log(`Extracted USD value: ${item.USD} -> ${value}`);
+        return value; // This will be negative for discounts
+      }
     } else if (typeof item.USD === 'number') {
       return item.USD;
     }
   }
   
-  // Check other common field names
-  if ('amount' in item && !isNaN(parseFloat(item.amount))) return parseFloat(item.amount);
-  if ('cost' in item && !isNaN(parseFloat(item.cost))) return parseFloat(item.cost);
-  if ('price' in item && !isNaN(parseFloat(item.price))) return parseFloat(item.price);
-  if ('charge' in item && !isNaN(parseFloat(item.charge))) return parseFloat(item.charge);
+  // Check other common field names (allow negative values)
+  if ('amount' in item) {
+    const amount = parseFloat(item.amount);
+    if (!isNaN(amount)) return amount;
+  }
+  if ('cost' in item) {
+    const cost = parseFloat(item.cost);
+    if (!isNaN(cost)) return cost;
+  }
+  if ('price' in item) {
+    const price = parseFloat(item.price);
+    if (!isNaN(price)) return price;
+  }
+  if ('charge' in item) {
+    const charge = parseFloat(item.charge);
+    if (!isNaN(charge)) return charge;
+  }
   
   // IMPORTANT: Do NOT use invoice_amount as a fallback
   // This is the entire invoice amount, not the line item amount!
   
-  // Look for other fields that might contain monetary values
+  // Look for other fields that might contain monetary values (including negative)
   for (const [key, value] of Object.entries(item)) {
     // Skip non-numeric fields, hours field, and invoice amount
     if (key === 'hours' || key === 'invoice_amount') continue;
     
-    // Handle string values that might have currency symbols
-    if (typeof value === 'string' && value.includes('$')) {
+    // Handle string values that might have currency symbols (including negative)
+    if (typeof value === 'string' && (value.includes('$') || value.includes('-'))) {
       const cleaned = value.replace(/[^\d.-]/g, '');
       const numValue = parseFloat(cleaned);
-      if (!isNaN(numValue) && numValue > 0) {
-        return numValue;
+      if (!isNaN(numValue)) {
+        // Log if this is a discount/negative value
+        if (numValue < 0) {
+          console.log(`Found discount/negative value in field ${key}: ${value} -> ${numValue}`);
+        }
+        return numValue; // Return negative values for discounts
       }
-    } else if (typeof value === 'number' && value > 0) {
-      // Use any numeric field as a fallback
+    } else if (typeof value === 'number') {
+      // Return any numeric field, including negative values
       return value;
     }
   }
   
   // If nothing else is found, return 0
   return 0;
+};
+
+// NEW FUNCTION: Check if an item is a discount
+export const isDiscountItem = (item) => {
+  // Check if the monetary value is negative
+  const amount = extractMonetaryValue(item);
+  if (amount < 0) return true;
+  
+  // Check if description/category indicates it's a discount
+  const description = (item.description || '').toLowerCase();
+  const category = (item.category || '').toLowerCase();
+  const product = (item.product || '').toLowerCase();
+  const name = (item.name || '').toLowerCase();
+  
+  const discountKeywords = ['discount', 'credit', 'refund', 'rebate', 'adjustment'];
+  
+  return discountKeywords.some(keyword => 
+    description.includes(keyword) || 
+    category.includes(keyword) || 
+    product.includes(keyword) ||
+    name.includes(keyword)
+  );
+};
+
+// NEW FUNCTION: Categorize discount items
+export const categorizeDiscountItem = (item) => {
+  const description = (item.description || '').toLowerCase();
+  const category = (item.category || '').toLowerCase();
+  const product = (item.product || '').toLowerCase();
+  
+  // Check for specific discount types
+  if (description.includes('iaas') || category.includes('iaas')) {
+    return 'IaaS Discount';
+  }
+  if (description.includes('paas') || category.includes('paas')) {
+    return 'PaaS Discount';
+  }
+  if (description.includes('contract')) {
+    return 'Contract Discount';
+  }
+  
+  // Default discount category
+  return 'Discounts';
 };
 
 // Helper function to extract proper project name from item
@@ -180,13 +242,13 @@ const extractProjectName = (item) => {
   return 'Unassigned';
 };
 
-// Process project data from detailed line items
+// UPDATED: Process project data from detailed line items (now includes discounts)
 export const processProjectData = (detailedLineItems, selectedRange, invoices) => {
   if (!detailedLineItems || detailedLineItems.length === 0) {
     return { 'Unassigned': 0 };
   }
   
-  console.log("Processing project data from detailed line items");
+  console.log("Processing project data from detailed line items (including discounts)");
   
   // Filter invoices by time range
   const filteredInvoices = filterInvoicesByTimeRange(invoices, selectedRange);
@@ -198,6 +260,7 @@ export const processProjectData = (detailedLineItems, selectedRange, invoices) =
   // Process line items to get project spending
   const projectSpend = {};
   let totalProjectAmount = 0;
+  let discountCount = 0;
   
   // Process each invoice item with project information
   detailedLineItems.forEach(item => {
@@ -208,16 +271,28 @@ export const processProjectData = (detailedLineItems, selectedRange, invoices) =
     
     const amount = extractMonetaryValue(item);
     
+    // Log discount items for debugging
+    if (amount < 0) {
+      console.log('Processing discount item:', {
+        description: item.description,
+        amount: amount,
+        category: item.category,
+        product: item.product
+      });
+      discountCount++;
+    }
+    
     // Extract project name, use "Unassigned" if not present
     const project = item.project_name || 'Unassigned';
     
-    // Add to project spending
+    // Add to project spending (this now includes negative amounts for discounts)
     projectSpend[project] = (projectSpend[project] || 0) + amount;
     totalProjectAmount += amount;
   });
   
-  console.log("Project spend data from detailed items:", projectSpend);
+  console.log("Project spend data from detailed items (with discounts):", projectSpend);
   console.log("Total amount across all projects:", totalProjectAmount);
+  console.log("Number of discount items processed:", discountCount);
   
   // If no project data was found, add a placeholder
   if (Object.keys(projectSpend).length === 0) {
@@ -227,7 +302,7 @@ export const processProjectData = (detailedLineItems, selectedRange, invoices) =
   return projectSpend;
 };
 
-// Enhanced helper function to process detailed line items by category
+// Enhanced helper function to process detailed line items by category (now includes discounts)
 export const processDetailedLineItems = (detailedLineItems, selectedRange, invoices) => {
   if (!detailedLineItems || detailedLineItems.length === 0) {
     return {};
@@ -248,13 +323,20 @@ export const processDetailedLineItems = (detailedLineItems, selectedRange, invoi
   const categorizedItems = {};
   
   filteredLineItems.forEach(item => {
-    // Determine the category using multiple potential fields
-    const category = item.category || 
-                    item.name || 
-                    item.product || 
-                    item.group_description || 
-                    item.description || 
-                    'Unknown';
+    let category;
+    
+    // Special handling for discount items
+    if (isDiscountItem(item)) {
+      category = categorizeDiscountItem(item);
+    } else {
+      // Determine the category using multiple potential fields for regular items
+      category = item.category || 
+                item.name || 
+                item.product || 
+                item.group_description || 
+                item.description || 
+                'Unknown';
+    }
     
     // Initialize the category array if needed
     if (!categorizedItems[category]) {
@@ -268,7 +350,7 @@ export const processDetailedLineItems = (detailedLineItems, selectedRange, invoi
   return categorizedItems;
 };
 
-// Helper function to get detailed data for a specific category
+// Helper function to get detailed data for a specific category (now includes discounts)
 export const getCategoryDetails = (detailedLineItems, category, selectedRange, invoices) => {
   if (!category || !detailedLineItems || detailedLineItems.length === 0) {
     return [];
@@ -279,13 +361,20 @@ export const getCategoryDetails = (detailedLineItems, category, selectedRange, i
   
   // Filter detailed line items by category
   return filteredLineItems.filter(item => {
-    // Determine the item's category using multiple potential fields
-    const itemCategory = item.category || 
-                        item.name || 
-                        item.product || 
-                        item.group_description || 
-                        item.description || 
-                        'Unknown';
+    let itemCategory;
+    
+    // Special handling for discount items
+    if (isDiscountItem(item)) {
+      itemCategory = categorizeDiscountItem(item);
+    } else {
+      // Determine the item's category using multiple potential fields
+      itemCategory = item.category || 
+                    item.name || 
+                    item.product || 
+                    item.group_description || 
+                    item.description || 
+                    'Unknown';
+    }
     
     // Try exact match first
     if (itemCategory === category) return true;
@@ -298,7 +387,7 @@ export const getCategoryDetails = (detailedLineItems, category, selectedRange, i
   });
 };
 
-// Helper function to get distinct categories from detailed line items
+// Helper function to get distinct categories from detailed line items (now includes discount categories)
 export const getDistinctCategories = (detailedLineItems) => {
   if (!detailedLineItems || detailedLineItems.length === 0) {
     return [];
@@ -307,12 +396,19 @@ export const getDistinctCategories = (detailedLineItems) => {
   const categories = new Set();
   
   detailedLineItems.forEach(item => {
-    const category = item.category || 
-                    item.name || 
-                    item.product || 
-                    item.group_description || 
-                    item.description || 
-                    'Unknown';
+    let category;
+    
+    // Special handling for discount items
+    if (isDiscountItem(item)) {
+      category = categorizeDiscountItem(item);
+    } else {
+      category = item.category || 
+                item.name || 
+                item.product || 
+                item.group_description || 
+                item.description || 
+                'Unknown';
+    }
     
     categories.add(category);
   });
@@ -320,7 +416,7 @@ export const getDistinctCategories = (detailedLineItems) => {
   return Array.from(categories);
 };
 
-// Main data processing function
+// Main data processing function (updated to handle discounts)
 export const processData = (invoices, invoiceSummaries, selectedRange) => {
   console.log("Processing data with time range:", selectedRange);
   
@@ -352,7 +448,7 @@ export const processData = (invoices, invoiceSummaries, selectedRange) => {
       const category = item.name || item.group_description || item.description || 'Unknown';
       const project = extractProjectName(item);
       const product = item.name || item.product || item.type || 'Unknown';
-      const amount = parseFloat(item.amount) || 0;
+      const amount = parseFloat(item.amount) || 0; // This can now be negative for discounts
       
       categorySpend[category] = (categorySpend[category] || 0) + amount;
       projectSpend[project] = (projectSpend[project] || 0) + amount;
@@ -367,7 +463,7 @@ export const processData = (invoices, invoiceSummaries, selectedRange) => {
       const category = item.name || item.group_description || item.description || 'Overages';
       const project = extractProjectName(item);
       const product = item.name || item.product || item.type || 'Overages';
-      const amount = parseFloat(item.amount) || 0;
+      const amount = parseFloat(item.amount) || 0; // This can now be negative for discounts
       
       categorySpend[category] = (categorySpend[category] || 0) + amount;
       projectSpend[project] = (projectSpend[project] || 0) + amount;
