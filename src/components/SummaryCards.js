@@ -126,10 +126,10 @@ export const SummaryCards = ({ summary, accountName }) => {
         </div>
       )}
       
-      <div className="card">
+      {/* <div className="card">
         <h3 className="card-title">Invoices Processed</h3>
         <p className="card-value">{invoiceCount}</p>
-      </div>
+      </div> */}
       
       <div className="card">
         <h3 className="card-title">Line Items</h3>
