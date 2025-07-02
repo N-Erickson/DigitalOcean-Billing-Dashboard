@@ -77,14 +77,13 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken, accountName }) => 
           <tr>
             <th>Invoice ID</th>
             <th>Period</th>
-            <th>Date</th>
             <th>Amount</th>
           </tr>
         </thead>
         <tbody>
           {sortedInvoices.length === 0 ? (
             <tr>
-              <td colSpan="4" style={{ textAlign: 'center' }}>
+              <td colSpan="3" style={{ textAlign: 'center' }}>
                 No invoice data available for the selected time period
               </td>
             </tr>
@@ -95,10 +94,6 @@ export const InvoiceTable = ({ invoices, timeRange, apiToken, accountName }) => 
                 <tr key={invoice.invoice_uuid}>
                   <td>{invoice.invoice_uuid || 'Unknown'}</td>
                   <td>{invoice.invoice_period || 'N/A'}</td>
-                  <td>
-                    {invoice.date || 
-                    (invoice.created_at ? new Date(invoice.created_at).toISOString().slice(0, 10) : 'N/A')}
-                  </td>
                   <td>
                     {formatCurrency(amount)}
                     <button 

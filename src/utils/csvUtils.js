@@ -773,8 +773,21 @@ export const addForecastToMonthlyChart = (chartData, forecastAmount) => {
     datasets: JSON.parse(JSON.stringify(chartData.datasets))
   };
   
-  // Get the last month label and create a forecast month label
-  const lastMonth = chartData.labels[chartData.labels.length - 1];
+  // Sort labels chronologically to ensure we get the actual last month
+  const sortedIndices = [...chartData.labels.keys()].sort((a, b) => {
+    const parseMonthPeriod = (periodStr) => {
+      if (!periodStr) return new Date(0);
+      if (/^\d{4}-\d{2}$/.test(periodStr)) {
+        return new Date(`${periodStr}-01`);
+      }
+      return new Date(periodStr);
+    };
+    return parseMonthPeriod(chartData.labels[a]) - parseMonthPeriod(chartData.labels[b]);
+  });
+  
+  // Get the chronologically last month label and create a forecast month label
+  const lastMonthIndex = sortedIndices[sortedIndices.length - 1];
+  const lastMonth = chartData.labels[lastMonthIndex];
   let nextMonth = "";
   
   // Try to parse the last month format and increment by one month
@@ -798,7 +811,6 @@ export const addForecastToMonthlyChart = (chartData, forecastAmount) => {
   
   // Add forecast data point to each dataset
   newChartData.datasets = newChartData.datasets.map(dataset => {
-    const lastValue = dataset.data[dataset.data.length - 1];
     const forecastPoint = forecastAmount;
     
     // Create a new dataset with forecast point added

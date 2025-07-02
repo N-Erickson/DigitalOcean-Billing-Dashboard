@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import { formatCurrency } from '../../utils/dataUtils';
-import { addForecastToMonthlyChart } from '../../utils/csvUtils';
 
 export const MonthlyChart = ({ data, showForecast = true, forecastAmount = null }) => {
   const chartRef = useRef(null);
@@ -46,96 +45,60 @@ export const MonthlyChart = ({ data, showForecast = true, forecastAmount = null 
     
     // Add forecast point if enabled
     if (showForecast && forecastAmount) {
-      // Special case for single-month view
-      if (data.labels.length === 1) {
-        // For a single month, we'll manually add a single point to the chart
-        // and then add the forecast point
-        const singleLabel = data.labels[0];
-        let nextMonthLabel = '';
+      // Calculate the next month label after the chronologically last month
+      const latestLabel = sortedLabels[sortedLabels.length - 1];
+      let nextMonthLabel = '';
+      
+      if (/^\d{4}-\d{2}$/.test(latestLabel)) {
+        // Format is YYYY-MM
+        const year = parseInt(latestLabel.substring(0, 4));
+        const month = parseInt(latestLabel.substring(5, 7));
         
-        // Try to parse the month format and create the next month label
-        if (/^\d{4}-\d{2}$/.test(singleLabel)) {
-          // Format is YYYY-MM
-          const year = parseInt(singleLabel.substring(0, 4));
-          const month = parseInt(singleLabel.substring(5, 7));
-          
-          if (month === 12) {
-            nextMonthLabel = `${year + 1}-01`;
-          } else {
-            nextMonthLabel = `${year}-${String(month + 1).padStart(2, '0')}`;
-          }
+        if (month === 12) {
+          nextMonthLabel = `${year + 1}-01`;
         } else {
-          // Fallback to simple labeling if we can't parse the date format
-          nextMonthLabel = 'Forecast';
+          nextMonthLabel = `${year}-${String(month + 1).padStart(2, '0')}`;
         }
-        
-        // Create the forecast dataset
-        chartData = {
-          labels: [singleLabel, nextMonthLabel],
-          datasets: [
-            {
-              label: 'Monthly Spend',
-              data: [sortedValues[0]],
-              backgroundColor: 'rgba(59, 130, 246, 0.2)',
-              borderColor: 'rgba(59, 130, 246, 1)',
-              borderWidth: 2,
-              tension: 0.1,
-              fill: true
-            },
-            {
-              label: 'Forecast',
-              data: [null, forecastAmount], // null for first point to avoid connecting line
-              borderColor: 'rgba(255, 99, 132, 1)',
-              backgroundColor: 'rgba(255, 99, 132, 0.1)',
-              borderWidth: 2,
-              borderDash: [5, 5],
-              pointRadius: [0, 6],
-              pointBackgroundColor: 'rgba(255, 99, 132, 1)',
-              tension: 0,
-              fill: false
-            }
-          ]
-        };
       } else {
-        // For multiple months, use the standard approach with the helper function
-        chartData = addForecastToMonthlyChart(chartData, forecastAmount);
-        
-        // Modified options for forecast styling
-        const forecastIndex = chartData.labels.length - 1;
-        
-        chartData.datasets[0].pointBackgroundColor = chartData.datasets[0].data.map((_, i) => 
-          i === forecastIndex ? 'rgba(255, 99, 132, 1)' : 'rgba(59, 130, 246, 1)'
-        );
-        
-        chartData.datasets[0].pointRadius = chartData.datasets[0].data.map((_, i) => 
-          i === forecastIndex ? 6 : 3
-        );
-        
-        // Change the line style for the forecast segment
-        const originalData = [...chartData.datasets[0].data];
-        const originalBorderColor = [...(Array.isArray(chartData.datasets[0].borderColor) ? 
-          chartData.datasets[0].borderColor : 
-          Array(chartData.datasets[0].data.length).fill(chartData.datasets[0].borderColor))];
-        
-        // Create a segment dataset for the forecast (dashed line)
-        chartData.datasets.push({
-          label: 'Forecast',
-          data: [originalData[originalData.length - 2], originalData[originalData.length - 1]],
-          borderColor: 'rgba(255, 99, 132, 1)',
-          backgroundColor: 'rgba(255, 99, 132, 0.1)',
-          borderWidth: 2,
-          borderDash: [5, 5],
-          pointRadius: [0, 6],
-          pointBackgroundColor: 'rgba(255, 99, 132, 1)',
-          tension: 0.1,
-          fill: false
-        });
-        
-        // Remove the last point from the main dataset
-        chartData.datasets[0].data.pop();
-        chartData.datasets[0].pointBackgroundColor = chartData.datasets[0].pointBackgroundColor.slice(0, -1);
-        chartData.datasets[0].pointRadius = chartData.datasets[0].pointRadius.slice(0, -1);
+        // Fallback to simple labeling if we can't parse the date format
+        nextMonthLabel = 'Forecast';
       }
+      
+      // Add the forecast month to the labels
+      chartData.labels.push(nextMonthLabel);
+      
+      // Add the forecast value to each dataset
+      chartData.datasets = chartData.datasets.map((dataset, datasetIndex) => {
+        if (datasetIndex === 0) {
+          // Main dataset - add forecast point with special styling
+          return {
+            ...dataset,
+            data: [...dataset.data, forecastAmount],
+            pointBackgroundColor: [
+              ...Array(dataset.data.length).fill('rgba(59, 130, 246, 1)'),
+              'rgba(255, 99, 132, 1)' // Red for forecast point
+            ],
+            pointRadius: [
+              ...Array(dataset.data.length).fill(3),
+              6 // Larger for forecast point
+            ],
+            segment: {
+              borderColor: (ctx) => {
+                // Make the line segment to the forecast point red and dashed
+                const index = ctx.p0DataIndex;
+                const isLastSegment = index === dataset.data.length - 1;
+                return isLastSegment ? 'rgba(255, 99, 132, 1)' : 'rgba(59, 130, 246, 1)';
+              },
+              borderDash: (ctx) => {
+                const index = ctx.p0DataIndex;
+                const isLastSegment = index === dataset.data.length - 1;
+                return isLastSegment ? [5, 5] : undefined;
+              }
+            }
+          };
+        }
+        return dataset;
+      });
     }
     
     chartInstance.current = new Chart(ctx, {
@@ -156,8 +119,9 @@ export const MonthlyChart = ({ data, showForecast = true, forecastAmount = null 
           tooltip: { 
             callbacks: { 
               label: context => {
-                // Special handling for forecast point
-                if (context.dataset.label === 'Forecast') {
+                // Special handling for forecast point (last point in main dataset)
+                const isLastPoint = context.dataIndex === context.dataset.data.length - 1;
+                if (isLastPoint && showForecast) {
                   return 'Forecast: ' + formatCurrency(context.raw);
                 }
                 return 'Spend: ' + formatCurrency(context.raw);
@@ -165,8 +129,7 @@ export const MonthlyChart = ({ data, showForecast = true, forecastAmount = null 
             } 
           },
           legend: {
-            display: showForecast && chartData.datasets.length > 1,
-            position: 'top'
+            display: false // We'll handle forecast indication via styling and tooltips
           }
         }
       }
